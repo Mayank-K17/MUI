@@ -57,6 +57,7 @@ class preconditioner {
     public:
         // Abstract function on preconditioner apply
         virtual sparse_matrix<ITYPE,VTYPE> apply(const sparse_matrix<ITYPE,VTYPE> &) = 0;
+        virtual void sycl_apply(sycl::queue, sparse_matrix<ITYPE,VTYPE> &, const sparse_matrix<ITYPE,VTYPE> &) = 0;
         // Destructor
         virtual ~preconditioner(){};
 };
@@ -100,7 +101,8 @@ class incomplete_cholesky_preconditioner : public preconditioner<ITYPE,VTYPE> {
 
 // Class of Symmetric Successive Over-relaxation preconditioner
 template<typename ITYPE, typename VTYPE>
-class symmetric_successive_over_relaxation_preconditioner : public preconditioner<ITYPE,VTYPE> {
+class symmetric_successive_over_relaxation_preconditioner : public preconditioner<ITYPE,VTYPE> 
+{
 
     public:
         // Constructor
@@ -124,14 +126,18 @@ class diagonal_preconditioner : public preconditioner<ITYPE,VTYPE> {
     public:
         // Constructor
         diagonal_preconditioner(const sparse_matrix<ITYPE,VTYPE>&);
+        diagonal_preconditioner(sycl::queue, const sparse_matrix<ITYPE,VTYPE>&);
         // Destructor
         ~diagonal_preconditioner();
         // Member function on preconditioner apply
         sparse_matrix<ITYPE,VTYPE> apply(const sparse_matrix<ITYPE,VTYPE>&);
+        // Member function on preconditioner apply using sycl
+        void sycl_apply(sycl::queue, sparse_matrix<ITYPE,VTYPE>&, const sparse_matrix<ITYPE,VTYPE>&);
 
     private:
         // The inverse diagonal matrix
         sparse_matrix<ITYPE,VTYPE> inv_diag_;
+        sparse_matrix<ITYPE,VTYPE> sycl_z_;
 
 };
 
