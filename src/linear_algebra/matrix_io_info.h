@@ -482,7 +482,7 @@ std::istream& operator>>(std::istream &ifile, sparse_matrix<ITYPE,VTYPE> &exist_
     std::vector<ITYPE> tempRowIndex;
     std::vector<ITYPE> tempColIndex;
     std::vector<VTYPE> tempValue;
-
+    
     ITYPE row = 0;
     ITYPE col = 0;
     while (std::getline(ifile, rawLine)) 
@@ -521,8 +521,10 @@ std::istream& operator>>(std::istream &ifile, sparse_matrix<ITYPE,VTYPE> &exist_
         }
         ++row;
     }
+    
     if ((exist_mat.get_rows() == 0) && (exist_mat.get_cols() == 0))
     {
+        
         sparse_matrix<ITYPE,VTYPE> temp_matrix(row, col, "COO", tempValue, tempRowIndex, tempColIndex);
         exist_mat.resize(row, col);
         exist_mat.sycl_resize(row,col);
@@ -534,12 +536,13 @@ std::istream& operator>>(std::istream &ifile, sparse_matrix<ITYPE,VTYPE> &exist_
     {
         assert(((exist_mat.get_rows() == row) && (exist_mat.get_cols() == col)) &&
           "MUI Error [matrix_io_info.h]: Matrix size mismatching between existing matrix and read in matrix in overloading >> operator ");
+         
         sparse_matrix<ITYPE,VTYPE> temp_matrix(row, col, "COO", tempValue, tempRowIndex, tempColIndex);
+      
         exist_mat.format_conversion("COO", false, false);
         exist_mat.copy(temp_matrix);
         temp_matrix.set_zero();
     }
-
     if (format_store != exist_mat.get_format()) 
     {
         if (format_store == "COO") 

@@ -62,14 +62,12 @@ inline double test00 () {
     std::cout << "================ Diagonal Preconditioner ===================" << std::endl;
     std::cout << "============================================================" << std::endl;
     std::cout << std::endl;
-
+    auto defaultQueue = sycl::queue {sycl::default_selector_v};
     const clock_t begin_time = clock();
 
     double cg_solve_tol = 1e-6;
     int cg_max_iter = 100;
-
     std::pair<int, double> cgReturn;
-
     // Reads Css matrix from a file
     mui::linalg::sparse_matrix<int,double> Css;
     std::ifstream ifileCss("Css.csv");
@@ -82,35 +80,35 @@ inline double test00 () {
     ifileAas >> Aas;
     ifileAas.close();
 
+
     // Reads H_ref matrix from a file
     mui::linalg::sparse_matrix<int,double> H_ref; //< Reference value of Transformation Matrix
     std::ifstream ifileHRef("Hi.csv");
     ifileHRef >> H_ref;
     ifileHRef.close();
-
+   
     mui::linalg::sparse_matrix<int,double> H_i;   //< Coupling Matrix
     mui::linalg::sparse_matrix<int,double> H_diff; //< Difference between reference value and calculated value of Transformation Matrix
-
-    H_i.resize(Aas.get_rows(), Aas.get_cols());
-    H_diff.resize(Aas.get_rows(), Aas.get_cols());
-
-    mui::linalg::diagonal_preconditioner<int,double> M(Css);
-
+    std::cout<<"Before device selector"<<std::endl;
+    
+    
+    std::cout<<"Before device selector"<<std::endl;
+    mui::linalg::diagonal_preconditioner<int,double> M(defaultQueue, Css);
     mui::linalg::conjugate_gradient<int,double> cg(Css, Aas, cg_solve_tol, cg_max_iter, &M);
 
-    cgReturn = cg.solve();
+    cgReturn = cg.sycl_solve();
     H_i = cg.getSolution();
 
     std::cout << "Matrix H_i: " << std::endl;
-    H_i.print();
+    //H_i.print();
 
     std::cout << "Reference value of Matrix H_i: " << std::endl;
-    H_ref.print();
+    //H_ref.print();
 
-    H_diff = H_i - H_ref;
+    //H_diff = H_i - H_ref;
 
     std::cout << "Difference between calculated value and reference value: " << std::endl;
-    H_diff.print();
+    //H_diff.print();
 
     double mui_time = static_cast<double>(clock() - begin_time) / CLOCKS_PER_SEC;
 
@@ -244,11 +242,13 @@ int main(int argc, char** argv) {
 
 	if ( runTypeArg.compare("mui") == 0 )
 		runType = 0;
-	else if ( runTypeArg.compare("eigen") == 0 )
+	
+    else if ( runTypeArg.compare("eigen") == 0 )
 		runType = 1;
 	else if ( runTypeArg.compare("both") == 0 )
 		runType = 2;
-	else {
+	
+    else {
 		std::cerr << "Usage: " << argv[0] << " [linear algebra solution (eigen/mui/both)]" << std::endl;
 		exit(-1);
 	}
@@ -261,6 +261,7 @@ int main(int argc, char** argv) {
 
 		std::cout << "MUI::linalg time: " << mui_time << std::endl;
 	}
+    
     if( runType == 1 ) { // eigen only
     	double eigen_time = test01();
 
@@ -273,6 +274,6 @@ int main(int argc, char** argv) {
     	std::cout << "MUI::linalg time: " << mui_time << " Eigen time: " << eigen_time << std::endl;
 		std::cout << "Eigen is " <<  mui_time/eigen_time << " times faster than MUI::linalg" << std::endl;
     }
-
+    
     return 0;
 }

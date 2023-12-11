@@ -114,7 +114,8 @@ std::pair<ITYPE, VTYPE> gaussian_elimination_1d<ITYPE, VTYPE>::solve(sparse_matr
         b_.swap_elements(i, 0, pivot, 0);
 
       // Elimination
-      for (ITYPE j = i+1; j < A_.get_cols(); ++j) {
+      for (ITYPE j = i+1; j < A_.get_cols(); ++j) 
+      {
           assert(std::abs(A_.get_value(i, i)) >= std::numeric_limits<VTYPE>::min() &&
                   "MUI Error [solver_ge.h]: Divide by zero assert for A_.get_value(i, i)");
           VTYPE factor = A_.get_value(j, i) / A_.get_value(i, i);

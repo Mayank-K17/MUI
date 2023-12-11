@@ -61,17 +61,20 @@ sparse_matrix<ITYPE,VTYPE>::sparse_matrix(ITYPE r, ITYPE c, const std::string &f
     : rows_(r), cols_(c) {
 
     this->sparse_matrix<ITYPE,VTYPE>::set_matrix_format(format);
-
-
+    
+    
+    
     if (!value_vector.empty()) {
 
         nnz_ = value_vector.size();
+        
+        
         /*
         auto Selector = [](sycl::device const &dev) 
         {
             if (dev.get_platform().get_backend() == sycl::backend::ext_oneapi_cuda) 
             {
-            //    std::cout << " CUDA device found " << std::endl;
+                std::cout << " CUDA device found " << std::endl;
                 return 1;
             }
            else 
@@ -80,8 +83,9 @@ sparse_matrix<ITYPE,VTYPE>::sparse_matrix(ITYPE r, ITYPE c, const std::string &f
             }
         };
         */
-        auto defaultQueue = sycl::queue {sycl::gpu_selector_v};
-
+        auto defaultQueue = sycl::queue{sycl::default_selector_v};
+        
+        
         if (matrix_format_ == format::COO) 
         {
 
@@ -92,22 +96,24 @@ sparse_matrix<ITYPE,VTYPE>::sparse_matrix(ITYPE r, ITYPE c, const std::string &f
             matrix_sycl.values      = sycl::malloc_shared<VTYPE>(value_vector.size(),defaultQueue);
             matrix_sycl.row         = sycl::malloc_shared<ITYPE>(row_vector.size(),defaultQueue);
             matrix_sycl.column      = sycl::malloc_shared<ITYPE>(column_vector.size(),defaultQueue);
-
+            std::cout << "================== Simplified RBF Matrices 3  2=================" << std::endl;
             matrix_coo.values_ = std::vector<VTYPE>(value_vector.begin(), value_vector.end());
             matrix_coo.row_indices_ = std::vector<ITYPE>(row_vector.begin(), row_vector.end());
             matrix_coo.col_indices_ = std::vector<ITYPE>(column_vector.begin(), column_vector.end());
-
-            for (int i=0;i<value_vector.size();i++)
+            if (r>0 &&c>0)
             {
+              for (int i=0;i<value_vector.size();i++)
+              {
                 matrix_sycl.values[i] = value_vector[i];
-            }
-            for (int i=0;i<row_vector.size();i++)
-            {
+              }
+              for (int i=0;i<row_vector.size();i++)
+              {
                 matrix_sycl.row[i] = row_vector[i];
-            }
-            for (int i=0;i<column_vector.size();i++)
-            {
+              }
+              for (int i=0;i<column_vector.size();i++)
+              {
                 matrix_sycl.column[i] = column_vector[i];
+              }
             }
 
         } 
@@ -225,7 +231,7 @@ sparse_matrix<ITYPE,VTYPE>::sparse_matrix(const sparse_matrix<ITYPE,VTYPE> &exis
             }
         };
         */
-        auto defaultQueue = sycl::queue {sycl::gpu_selector_v};
+        auto defaultQueue = sycl::queue {sycl::default_selector_v};
       // Copy the data from the existing matrix
       if (matrix_format_ == format::COO) 
       {

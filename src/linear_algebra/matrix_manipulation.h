@@ -82,6 +82,7 @@ void sparse_matrix<ITYPE,VTYPE>::sycl_resize(ITYPE r, ITYPE c) {
             "MUI Error [matrix_manipulation.h]: resize function only works for all-zero matrix");
     rows_ = r;
     cols_ = c;
+    /*
     auto Selector = [](sycl::device const &dev) 
     {
         if (dev.get_platform().get_backend() == sycl::backend::ext_oneapi_cuda) 
@@ -94,7 +95,8 @@ void sparse_matrix<ITYPE,VTYPE>::sycl_resize(ITYPE r, ITYPE c) {
             return -1;
         }
     };
-    auto defaultQueue = sycl::queue{sycl::gpu_selector_v};
+    */
+    auto defaultQueue = sycl::queue{sycl::default_selector_v};
 
     if (matrix_format_ == format::CSR)
     {
@@ -123,7 +125,7 @@ template<typename ITYPE, typename VTYPE>
 void sparse_matrix<ITYPE,VTYPE>::sycl_assign_memory(ITYPE r) 
 {
     size_t mat_size = r;
-    
+    /*
      auto Selector = [](sycl::device const &dev) 
     {
         if (dev.get_platform().get_backend() == sycl::backend::ext_oneapi_cuda) 
@@ -136,7 +138,8 @@ void sparse_matrix<ITYPE,VTYPE>::sycl_assign_memory(ITYPE r)
             return -1;
         }
     };
-    auto defaultQueue = sycl::queue{sycl::gpu_selector_v};
+    */
+    auto defaultQueue = sycl::queue{sycl::default_selector_v};
     if (matrix_format_ == format::CSR)
     {
         matrix_sycl.values = sycl::malloc_shared<VTYPE>(mat_size,defaultQueue);
@@ -153,7 +156,7 @@ template<typename ITYPE, typename VTYPE>
 void sparse_matrix<ITYPE,VTYPE>::sycl_assign_memory(ITYPE r, ITYPE c) 
 {
     size_t mat_size = r*c;
-    
+    /*
     auto Selector = [](sycl::device const &dev) 
     {
         if (dev.get_platform().get_backend() == sycl::backend::ext_oneapi_cuda) 
@@ -166,7 +169,8 @@ void sparse_matrix<ITYPE,VTYPE>::sycl_assign_memory(ITYPE r, ITYPE c)
             return -1;
         }
     };
-    auto defaultQueue = sycl::queue{sycl::gpu_selector_v};
+    */
+    auto defaultQueue = sycl::queue{sycl::default_selector_v};
     if (matrix_format_ == format::CSR)
     {
         matrix_sycl.values = sycl::malloc_shared<VTYPE>(mat_size,defaultQueue);
@@ -182,8 +186,8 @@ void sparse_matrix<ITYPE,VTYPE>::sycl_assign_memory(ITYPE r, ITYPE c)
 template<typename ITYPE, typename VTYPE>
 void sparse_matrix<ITYPE,VTYPE>::sycl_assign_vec_memory(ITYPE r) 
 {
-    size_t mat_size = r;
-    
+    size_t mat_size = r; 
+   /*
     auto Selector = [](sycl::device const &dev) 
     {
         if (dev.get_platform().get_backend() == sycl::backend::ext_oneapi_cuda) 
@@ -196,7 +200,8 @@ void sparse_matrix<ITYPE,VTYPE>::sycl_assign_vec_memory(ITYPE r)
             return -1;
         }
     };
-    auto defaultQueue = sycl::queue{sycl::gpu_selector_v};
+    */
+    auto defaultQueue = sycl::queue{sycl::default_selector_v};
     
     matrix_sycl.vector_val = sycl::malloc_shared<VTYPE>(mat_size,defaultQueue);
     
@@ -241,6 +246,7 @@ void sparse_matrix<ITYPE,VTYPE>::copy(const sparse_matrix<ITYPE,VTYPE> &exist_ma
     exist_mat.assert_valid_vector_size("matrix_manipulation.h", "copy()");
 
     std::string format_store = this->get_format();
+    /*
     auto Selector = [](sycl::device const &dev) 
     {
         if (dev.get_platform().get_backend() == sycl::backend::ext_oneapi_cuda) 
@@ -253,7 +259,8 @@ void sparse_matrix<ITYPE,VTYPE>::copy(const sparse_matrix<ITYPE,VTYPE> &exist_ma
             return -1;
         }
     };
-    auto defaultQueue = sycl::queue {sycl::gpu_selector_v};
+    */
+    auto defaultQueue = sycl::queue {sycl::default_selector_v};
     if (exist_mat.nnz_>0) 
     {
 
@@ -427,7 +434,7 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::segment(ITYPE r_start, IT
       }
 
     sparse_matrix<ITYPE,VTYPE> res((r_end-r_start+1), (c_end-c_start+1), this->get_format());
-
+    /*
      auto Selector = [](sycl::device const &dev) 
      {
         if (dev.get_platform().get_backend() == sycl::backend::ext_oneapi_cuda) 
@@ -440,7 +447,8 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::segment(ITYPE r_start, IT
             return -1;
         }
     };
-    auto defaultQueue = sycl::queue {sycl::gpu_selector_v};
+    */
+    auto defaultQueue = sycl::queue {sycl::default_selector_v};
 
     if(matrix_format_ == format::COO) 
     {
@@ -858,7 +866,8 @@ void sparse_matrix<ITYPE,VTYPE>::set_zero() {
 template<typename ITYPE, typename VTYPE>
 void sparse_matrix<ITYPE,VTYPE>::sycl_set_zero() 
 {
-     auto Selector = [](sycl::device const &dev) 
+       /*
+       auto Selector = [](sycl::device const &dev) 
         {
             if (dev.get_platform().get_backend() == sycl::backend::ext_oneapi_cuda) 
             {
@@ -870,7 +879,8 @@ void sparse_matrix<ITYPE,VTYPE>::sycl_set_zero()
                 return -1;
             }
         };
-        auto defaultQueue = sycl::queue {sycl::gpu_selector_v};
+        */
+        auto defaultQueue = sycl::queue {sycl::default_selector_v};
         if (matrix_sycl.values != nullptr)
         {    
             sycl::free(matrix_sycl.values,defaultQueue);
@@ -1086,7 +1096,7 @@ sparse_matrix<ITYPE,VTYPE>& sparse_matrix<ITYPE,VTYPE>::operator=(const sparse_m
         if (this->get_format() != exist_mat.get_format()) {
             this->format_conversion(exist_mat.get_format(), true, true, "overwrite");
         }
-
+        /*
         auto Selector = [](sycl::device const &dev) 
         {
             if (dev.get_platform().get_backend() == sycl::backend::ext_oneapi_cuda) 
@@ -1099,8 +1109,8 @@ sparse_matrix<ITYPE,VTYPE>& sparse_matrix<ITYPE,VTYPE>::operator=(const sparse_m
                 return -1;
             }
         };
-
-        auto defaultQueue = sycl::queue {sycl::gpu_selector_v};
+        */
+        auto defaultQueue = sycl::queue {sycl::default_selector_v};
 
         // Copy the data from the existing matrix
         if (matrix_format_ == format::COO) 
@@ -2067,7 +2077,7 @@ void sparse_matrix<ITYPE,VTYPE>::csr_element_operation(ITYPE r, ITYPE c, VTYPE v
         std::cerr << "    'overwrite' (default): Keeps only the last elemental value" << std::endl;
         std::abort();
     }
-
+    /*
     auto Selector = [](sycl::device const &dev) 
     {
         if (dev.get_platform().get_backend() == sycl::backend::ext_oneapi_cuda) 
@@ -2080,7 +2090,8 @@ void sparse_matrix<ITYPE,VTYPE>::csr_element_operation(ITYPE r, ITYPE c, VTYPE v
             return -1;
         }
     };
-    auto defaultQueue = sycl::queue {sycl::gpu_selector_v};
+    */
+    auto defaultQueue = sycl::queue {sycl::default_selector_v};
 
     // Find the range of indices for the given row
     ITYPE start = matrix_csr.row_ptrs_[r];
@@ -2553,19 +2564,8 @@ void sparse_matrix<ITYPE,VTYPE>::coo_to_csr() {
     matrix_csr.values_.reserve(nnz_);
     matrix_csr.col_indices_.reserve(nnz_);
 
-   auto Selector = [](sycl::device const &dev) 
-    {
-        if (dev.get_platform().get_backend() == sycl::backend::ext_oneapi_cuda) 
-        {
-            std::cout << " CUDA device found in convert coo to csr" << std::endl;
-            return 1;
-        }
-        else 
-        {
-            return -1;
-        }
-    };
-    auto defaultQueue = sycl::queue {sycl::gpu_selector_v};
+    
+    auto defaultQueue = sycl::queue {sycl::default_selector_v};
 
     matrix_sycl.values = sycl::malloc_shared<VTYPE>(nnz_,defaultQueue);
     matrix_sycl.row    = sycl::malloc_shared<ITYPE>(rows_+1,defaultQueue);

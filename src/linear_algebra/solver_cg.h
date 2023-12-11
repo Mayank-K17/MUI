@@ -170,32 +170,20 @@ conjugate_gradient<ITYPE, VTYPE>::~conjugate_gradient() {
 template<typename ITYPE, typename VTYPE>
 std::pair<ITYPE, VTYPE> conjugate_gradient_1d<ITYPE, VTYPE>::sycl_solve(sycl::queue defaultQueue, sparse_matrix<ITYPE,VTYPE> x_init) 
 {
-    
+    auto functime = 0.;
     if (!x_init.empty())
     {
         assert(((x_init.get_rows() == x_.get_rows()) && (x_init.get_cols() == x_.get_cols())) &&
                 "MUI Error [solver_cg.h]: Size of x_init matrix mismatch with size of x_ matrix");
-        // Initialize x_ with x_init
-        
         x_.copy(x_init);
-        // Initialise r_ with b-Ax0
         Ax0.sycl_multiply(defaultQueue, A_, x_init);
-        
-    //    Ax0 = A_* x_init;
         r_.copy(b_-Ax0);
     }
     else 
     {
-        
-        // Initialise r_ with b
-        //b_.print_sycl_vectors(b_.get_rows());
-        
         r_.sycl_1d_vec_copy(defaultQueue,b_);
-       
-
     }
- //   std::cout<<"Inside sycl solve : 2 "<<std::endl;
-    // Initialise z_ with r_
+ 
     z_.sycl_1d_vec_copy(defaultQueue,r_);
 
     if (M_) 
@@ -205,14 +193,13 @@ std::pair<ITYPE, VTYPE> conjugate_gradient_1d<ITYPE, VTYPE>::sycl_solve(sycl::qu
         
     }
     
-  //  std::cout<<"Inside sycl solve : 2 "<<std::endl;
-    // Initialise p_ with z_
-    // p_.copy(z_);
     p_.sycl_1d_vec_copy(defaultQueue,z_);
     x_.sycl_copy_val_vector(defaultQueue);
-    //r_.sycl_copy_val_vector(defaultQueue);
-
+    auto t1 = std::chrono::high_resolution_clock::now();
     VTYPE r_norm0 = r_.sycl_dot_product(defaultQueue,z_);
+    auto t2 = std::chrono::high_resolution_clock::now();
+    //functime = functime + (std::chrono::duration_cast<std::chrono::milliseconds>(t2-t1).count());
+    
     assert(std::abs(r_norm0) >= std::numeric_limits<VTYPE>::min() &&
             "MUI Error [solver_cg.h]: Divide by zero assert for r_norm0");
     VTYPE r_norm = r_norm0;
@@ -228,90 +215,57 @@ std::pair<ITYPE, VTYPE> conjugate_gradient_1d<ITYPE, VTYPE>::sycl_solve(sycl::qu
     {
         kIter = cg_max_iter_;
     }
-    //sparse_matrix<ITYPE,VTYPE> Ap(A_.get_rows(),1);
-    
+
     char ch;
-    auto functime = 0.; 
-     auto functime2 = 0.;
-      auto functime3 = 0.;
-       auto functime4 = 0.;
-        auto functime5 = 0.;
-    //z_.copy(r_);
     
     for (ITYPE k = 0; k < kIter; ++k) 
     {
-        //std::cout<< " Iteration number : "<< k <<std::endl;
         ++acturalKIterCount;
-        auto t1 = std::chrono::high_resolution_clock::now();
-        Ap.sycl_multiply(defaultQueue,A_,p_);
-        auto t2 = std::chrono::high_resolution_clock::now();
-        functime = functime + std::chrono::duration_cast<std::chrono::milliseconds>(t2-t1).count();
         t1 = std::chrono::high_resolution_clock::now();
+        Ap.sycl_multiply(defaultQueue,A_,p_);
+        
         VTYPE p_dot_Ap = p_.sycl_dot_product(defaultQueue,Ap);
-        t2 = std::chrono::high_resolution_clock::now();
-        functime2 = functime2 + std::chrono::duration_cast<std::chrono::milliseconds>(t2-t1).count();
+       
+       
+        //t1 = std::chrono::high_resolution_clock::now();
         assert(std::abs(p_dot_Ap) >= std::numeric_limits<VTYPE>::min() &&
                 "MUI Error [solver_cg.h]: Divide by zero assert for p_dot_Ap");
+        
         VTYPE alpha = r_norm / p_dot_Ap;
-        t1 = std::chrono::high_resolution_clock::now();
-        //std::cout<< " Iteration Step number 1: "<< k <<std::endl;
+       
         x_.sycl_add_scalar(defaultQueue, p_,alpha);
         r_.sycl_subtract_scalar(defaultQueue, Ap,alpha);
-        //x_.print_sycl_vectors(A_.get_rows());
         z_.sycl_1d_vec_copy(defaultQueue,r_);
-        //std::cout<< " Iteration Step number 2: "<< k <<std::endl;
-        t2 = std::chrono::high_resolution_clock::now();
-        functime3 = functime3 + std::chrono::duration_cast<std::chrono::milliseconds>(t2-t1).count();
-        
+        //t2 = std::chrono::high_resolution_clock::now();
+        //functime = functime + (std::chrono::duration_cast<std::chrono::milliseconds>(t2-t1).count());
         
         if (M_) 
         {
-            t1 = std::chrono::high_resolution_clock::now();
-            M_->sycl_apply(defaultQueue,tempZ,z_);
-            t2 = std::chrono::high_resolution_clock::now();
-            functime4 = functime4 + std::chrono::duration_cast<std::chrono::milliseconds>(t2-t1).count();
-            z_.sycl_1d_vec_copy(defaultQueue,tempZ);
             
-            //tempZ.print_sycl_vectors(A_.get_rows());
+            M_->sycl_apply(defaultQueue,tempZ,z_);
+            z_.sycl_1d_vec_copy(defaultQueue,tempZ);
         }
-        
-         //std::cout<<" Now printing vector R : "<<std::endl;
-         //r_.print_sycl_vectors(A_.get_rows());
-         
-         //std::cout<<" Now printing vector Z : "<<std::endl;
-         //z_.print_sycl_vectors(A_.get_rows());
-        
-        t1 = std::chrono::high_resolution_clock::now();
+       // t1 = std::chrono::high_resolution_clock::now();
         VTYPE updated_r_norm = r_.sycl_dot_product(defaultQueue,z_);
+       // t2 = std::chrono::high_resolution_clock::now();
+       // functime = functime + (std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count());
         assert(std::abs(r_norm) >= std::numeric_limits<VTYPE>::min() &&
                 "MUI Error [solver_cg.h]: Divide by zero assert for r_norm");
         VTYPE beta = updated_r_norm / r_norm;
         r_norm = updated_r_norm;
-        
         p_.set_axpby(defaultQueue, z_,1,beta,A_.get_rows());
-        t2 = std::chrono::high_resolution_clock::now();
-        functime5 = functime5 + std::chrono::duration_cast<std::chrono::milliseconds>(t2-t1).count();
-        //std::cout<<" Now printing vector P : "<<std::endl;
-        //p_.print_sycl_vectors(A_.get_rows());
-        r_norm_rel = std::sqrt(r_norm/r_norm0);
         
-       // std::cout<<"R norm = "<<r_norm_rel<<std::endl;
+        r_norm_rel = std::sqrt(r_norm/r_norm0);
         if (r_norm_rel <= cg_solve_tol_) 
         {
-            std::cout << std::endl <<  " Updated R norm : " << updated_r_norm <<std::endl;
+        //    std::cout << std::endl <<  " Updated R norm : " << updated_r_norm << "At iteration k : " << k <<std::endl;
             break;
         }
-       
+         t2 = std::chrono::high_resolution_clock::now();
+         functime = functime + (std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count());
+        
     }
-    
-    // r_.copy(b_);
-  //  std::cout << "Total multiplication function time (ms)= " << (functime) <<std::endl;
- //   std::cout << "Total 1st dot product function time (ms)= " << (functime2) <<std::endl;
- //   std::cout << "Total scalar addition function time (ms)= " << (functime3) <<std::endl;
- //   std::cout << "Total preconditioner function time (ms)= " << (functime4) <<std::endl;
- //   std::cout << "Total fused update function time (ms)= " << (functime5) <<std::endl;
-    return std::make_pair(acturalKIterCount,r_norm_rel);
-    //return std::make_pair(0,0.);
+    return std::make_pair(acturalKIterCount,functime);
 }
 
 // Member function for one-dimensional Conjugate Gradient solver to solve
@@ -429,7 +383,8 @@ std::pair<ITYPE, VTYPE> conjugate_gradient<ITYPE, VTYPE>::solve(sparse_matrix<IT
     std::pair<ITYPE, VTYPE> cgReturn;
     //
     // for (ITYPE j = 0; j < 1; ++j) //b_.get_cols(); ++j) 
-    for (ITYPE j = 0; j < b_.get_cols(); ++j) 
+    //for (ITYPE j = 0; j < b_.get_cols(); ++j) 
+    for (ITYPE j = 0; j < 500; ++j)
     {
         b_column_.set_zero();
         b_column_.sycl_set_zero();
@@ -467,55 +422,29 @@ std::pair<ITYPE, VTYPE> conjugate_gradient<ITYPE, VTYPE>::solve(sparse_matrix<IT
 template<typename ITYPE, typename VTYPE>
 std::pair<ITYPE, VTYPE> conjugate_gradient<ITYPE, VTYPE>::sycl_solve(sparse_matrix<ITYPE,VTYPE> x_init) 
 {
-    if (!x_init.empty()){
+    if (!x_init.empty())
+    {
         assert(((x_init.get_rows() == b_.get_rows()) && (x_init.get_cols() == b_.get_cols())) &&
                 "MUI Error [solver_cg.h]: Size of x_init matrix mismatch with size of b_ matrix");
     }
-    /*
-    auto Selector = [](sycl::device const &dev) 
-    
-    {
-        if (dev.get_platform().get_backend() == sycl::backend::ext_oneapi_cuda) 
-        {
-            //std::cout << " CUDA device found in addition " << std::endl;
-            return 1;
-        }
-       else 
-        {
-            return -1;
-        }
-    };
-    */
-    auto defaultQueue = sycl::queue {sycl::gpu_selector_v};
+   
+    auto defaultQueue = sycl::queue {sycl::default_selector_v};
     auto functime = 0.;
     std::pair<ITYPE, VTYPE> cgReturn;
-    
-    b_column_.set_zero();
-    b_column_.sycl_set_zero();
-    b_.segment(0,(b_.get_rows()-1),0,0);
-    //x_init_column_.set_zero();
-    //x_init_column_.sycl_set_zero();
     
     std::cout << "Running on: "
               << defaultQueue.get_device().get_info<sycl::info::device::name>()
               << std::endl;
-    for (ITYPE j = 0; j <500; ++j) 
+    for (ITYPE j = 0; j <b_.get_cols(); ++j) 
     {
        
-    //    b_column_ = b_.segment(0,(b_.get_rows()-1),j,j);
-          b_column_.sycl_segment_row(defaultQueue, b_, j);
-    //    b_column_.sycl_copy_val_vector(defaultQueue);
-    //       b_column_.print_sycl_vectors(b_.get_rows());
-        
+        b_column_.sycl_segment_row(defaultQueue, b_, j);
+   
         conjugate_gradient_1d<ITYPE, VTYPE> cg(A_, b_column_, cg_solve_tol_, cg_max_iter_, M_);
        
         if (!x_init.empty()) 
         {
-           
-       //     x_init_column_ = x_init.segment(0,(x_init.get_rows()-1),j,j);
-             x_init_column_.sycl_segment_row(defaultQueue, x_init, j);
-        //    x_init_column_.sycl_copy_val_vector(defaultQueue);
-        //    x_init_column_.print_sycl_vectors(x_init.get_rows());
+            x_init_column_.sycl_segment_row(defaultQueue, x_init, j);
         }
         
         std::cout<< j << " out of " << b_.get_cols() - 1 <<"iteartions" <<std::endl;
@@ -533,15 +462,16 @@ std::pair<ITYPE, VTYPE> conjugate_gradient<ITYPE, VTYPE>::sycl_solve(sparse_matr
         //x_column.sycl_assign_vec_memory(b_.get_rows());
         //std::cout<< j << " out of " << b_.get_cols() - 1 <<"iteartions" <<std::endl;
         //x_column = cg.getSolution();
-       // cg.copy_vecSolution(defaultQueue, x_column );
-      //  for (ITYPE i = 0; i < x_column.get_rows(); ++i) 
-      //  {
-      //      x_.set_value(i, j, x_column.get_sycl_vec_value(i));
-      //  }
+        //cg.copy_vecSolution(defaultQueue, x_column );
+        //for (ITYPE i = 0; i < x_column.get_rows(); ++i) 
+        //{
+        //      x_.set_value(i, j, x_column.get_sycl_vec_value(i));
+        //}
     }
-    cgReturn.second /= b_.get_cols();
+    cgReturn.second /= 1e6;
+    std::cout << "Total vector time = " << (cgReturn.second) <<std::endl;
     std::cout << "Total function time = " << (functime/1000) <<std::endl;
-     return std::make_pair(0,0.);//cgReturn;
+    return cgReturn;
 }
 
 // Member function for one-dimensional Conjugate Gradient solver to get the solution

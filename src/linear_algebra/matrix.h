@@ -138,6 +138,8 @@ class sparse_matrix {
         void sycl_copy_val_vector(sycl::queue , const sparse_matrix<ITYPE, VTYPE> &);
         // Member function to get a segment of a sparse_matrix
         sparse_matrix<ITYPE,VTYPE> segment(ITYPE, ITYPE, ITYPE, ITYPE, bool = true);
+        void sycl_segment_row(sycl::queue , const sparse_matrix<ITYPE,VTYPE> &, ITYPE);
+        void segment_matrix_sycl(sycl::queue , VTYPE*, VTYPE*, ITYPE*,ITYPE*,ITYPE,size_t);
         void sycl_populate_diag(sycl::queue );
         void sycl_populate_diag_vec(sycl::queue , VTYPE *, VTYPE *, ITYPE *, ITYPE *, size_t);
         // Member function to insert an element

@@ -152,7 +152,7 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::operator+(sparse_matrix<I
         res.matrix_csr.row_ptrs_.resize(rows_ + 1);
         res.matrix_csr.col_indices_.reserve(matrix_csr.col_indices_.size() + addend.matrix_csr.col_indices_.size());  
 
-        auto defaultQueue = sycl::queue {sycl::gpu_selector_v};;
+        auto defaultQueue = sycl::queue {sycl::default_selector_v};;
 
         double *d_matrix_values;
         double *d_addend_values;
@@ -587,7 +587,7 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::operator-(sparse_matrix<I
         res.matrix_csr.row_ptrs_.resize(rows_ + 1);
         res.matrix_csr.col_indices_.reserve(matrix_csr.col_indices_.size() + subtrahend.matrix_csr.col_indices_.size());
        
-        auto defaultQueue = sycl::queue {sycl::gpu_selector_v};
+        auto defaultQueue = sycl::queue{sycl::default_selector_v};
             
         
 
@@ -645,7 +645,7 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::operator-(sparse_matrix<I
            
         }
 
-        //auto defaultQueue = sycl::queue{sycl::default_selector_v};
+        
         /*
         defaultQueue.memcpy(d_matrix_values,h_matrix_values,(size_matrix*sizeof(double))).wait();
         defaultQueue.memcpy(d_subtrahend_values,h_subtrahend_values,(size_subtrahend*sizeof(double))).wait();
@@ -1103,7 +1103,7 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::operator*(sparse_matrix<I
         res.matrix_csr.col_indices_.reserve((matrix_csr.col_indices_.size() <= multiplicand.matrix_csr.col_indices_.size()) ? multiplicand.matrix_csr.col_indices_.size() : matrix_csr.col_indices_.size());
 
         
-        auto defaultQueue = sycl::queue {sycl::gpu_selector_v};;
+        auto defaultQueue = sycl::queue {sycl::default_selector_v};
       
         double *d_matrix_values;
         double *d_multiplicand_values;
@@ -1496,7 +1496,7 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::operator*(const STYPE &sc
         size_t size_matrix = matrix_csr.values_.size();
         size_t size_rows = matrix_csr.row_ptrs_.size();
        
-        auto defaultQueue = sycl::queue {sycl::gpu_selector_v};
+        auto defaultQueue = sycl::queue {sycl::default_selector_v};
         
         VTYPE *d_res_values;
         ITYPE *d_res_rows;
@@ -2095,7 +2095,7 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::hadamard_product(sparse_m
 
         res.matrix_csr.row_ptrs_[0] = 0;
 
-        auto defaultQueue = sycl::queue {sycl::gpu_selector_v};
+        auto defaultQueue = sycl::queue {sycl::default_selector_v};
             
         double *h_matrix_values;
         double *h_exist_values;

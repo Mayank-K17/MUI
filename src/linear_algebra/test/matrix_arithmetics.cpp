@@ -47,7 +47,7 @@
 #include <iostream>
 #include <fstream>
 #include "../matrix.h"
-
+#include <CL/sycl.hpp>
 void test02 () {
 
     std::cout << std::endl;
@@ -57,16 +57,19 @@ void test02 () {
     std::cout << std::endl;
 
     mui::linalg::sparse_matrix<int,double> A(3, 3, "CSR");
+    A.sycl_resize(3,3);
+    A.sycl_assign_memory(3,3);
+    A.set_value(1, 2, 4);
+    A.set_value(0, 1, 2);
+    A.set_value(1, 1, -3.879);
     A.set_value(0, 0, 1);
-    A.set_value(0, 2, 2);
-    A.set_value(1, 1, 3);
     std::cout << "Matrix A: " << std::endl;
     A.print();
 
     // Create matrix B
-    std::vector<double> row0_vector{4,5,0};
-    std::vector<double> row1_vector{0,6,0};
-    std::vector<double> row2_vector{0,0,0};
+    std::vector<double> row0_vector{4,-6,0};
+    std::vector<double> row1_vector{0,5.287,0};
+    std::vector<double> row2_vector{0,0,7};
     std::vector<std::vector<double>> dense_vector;
     dense_vector.push_back(row0_vector);
     dense_vector.push_back(row1_vector);
@@ -82,21 +85,25 @@ void test02 () {
     C.print();
 
     C.set_zero();
+    C.sycl_set_zero();
     C = A - B;
     std::cout << "Subtraction of matrices (A - B): " << std::endl;
     C.print();
 
     C.set_zero();
+    C.sycl_set_zero();
     C = A * B;
     std::cout << "Multiplication of matrices (A * B): " << std::endl;
     C.print();
 
     C.set_zero();
+    C.sycl_set_zero();
     C = 8 * A;
     std::cout << "Scalar multiplication (8 * A): " << std::endl;
     C.print();
 
     C.set_zero();
+    C.sycl_set_zero();
     C = A * 8;
     std::cout << "Scalar multiplication (A * 8): " << std::endl;
     C.print();
@@ -111,6 +118,7 @@ void test02 () {
     std::cout << "      " << dot_result << std::endl;
 
     C.set_zero();
+    C.sycl_set_zero();
     C = A.hadamard_product(B);
     std::cout << "Hadamard product (A {*} B): " << std::endl;
     C.print();
