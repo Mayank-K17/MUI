@@ -49,7 +49,9 @@
 
 #include <cassert>
 #include <math.h>
-
+#include <bits/stdc++.h>
+#include <CL/sycl.hpp>
+#define MAX 1000000
 namespace mui {
 namespace linalg {
 
@@ -59,16 +61,21 @@ namespace linalg {
 
 // Overload addition operator to perform sparse matrix addition
 template<typename ITYPE, typename VTYPE>
-sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::operator+(sparse_matrix<ITYPE,VTYPE> &addend) {
+sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::operator+(sparse_matrix<ITYPE,VTYPE> &addend)
+{
 
-    if (rows_ != addend.rows_ || cols_ != addend.cols_) {
+    if (rows_ != addend.rows_ || cols_ != addend.cols_) 
+    {
         std::cerr << "MUI Error [matrix_arithmetic.h]: matrix size mismatch during matrix addition" << std::endl;
         std::abort();
     }
 
-    if (addend.matrix_format_ != matrix_format_) {
+    if (addend.matrix_format_ != matrix_format_) 
+    {
         addend.format_conversion(this->get_format(), true, true, "overwrite");
-    } else {
+    } 
+    else 
+    {
         if (!addend.is_sorted_unique("matrix_arithmetic.h", "operator+()")){
             if (addend.matrix_format_ == format::COO) {
                 addend.sort_coo(true, true, "overwrite");
@@ -87,14 +94,22 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::operator+(sparse_matrix<I
         }
     }
 
-    if (!this->is_sorted_unique("matrix_arithmetic.h", "operator+()")){
-        if (matrix_format_ == format::COO) {
+    if (!this->is_sorted_unique("matrix_arithmetic.h", "operator+()"))
+    {
+        if (matrix_format_ == format::COO) 
+        {
             this->sort_coo(true, true, "overwrite");
-        } else if (matrix_format_ == format::CSR) {
+        } 
+        else if (matrix_format_ == format::CSR) 
+        {
             this->sort_csr(true, "overwrite");
-        } else if (matrix_format_ == format::CSC) {
+        }
+        else if (matrix_format_ == format::CSC) 
+        {
             this->sort_csc(true, "overwrite");
-        } else {
+        }
+        else 
+        {
             std::cerr << "MUI Error [matrix_arithmetic.h]: Unrecognised matrix format for matrix operator+()" << std::endl;
             std::cerr << "    Please set the matrix_format_ as:" << std::endl;
             std::cerr << "    format::COO: COOrdinate format" << std::endl;
@@ -107,7 +122,8 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::operator+(sparse_matrix<I
     // Create a new sparse matrix object for the result
     sparse_matrix<ITYPE,VTYPE> res(rows_, cols_, this->get_format());
 
-    if (matrix_format_ == format::COO) {
+    if (matrix_format_ == format::COO) 
+    {
 
         // Perform element-wise addition of the COO vectors
         res.matrix_coo.values_.reserve(matrix_coo.values_.size() + addend.matrix_coo.values_.size());
@@ -128,85 +144,282 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::operator+(sparse_matrix<I
         res.sort_coo(true, true, "plus");
         res.nnz_ = res.matrix_coo.values_.size();
 
-    } else if (matrix_format_ == format::CSR) {
-
+    } 
+    else if (matrix_format_ == format::CSR) 
+    {
         // Perform element-wise addition of the CSR vectors
         res.matrix_csr.values_.reserve(matrix_csr.values_.size() + addend.matrix_csr.values_.size());
         res.matrix_csr.row_ptrs_.resize(rows_ + 1);
-        res.matrix_csr.col_indices_.reserve(matrix_csr.col_indices_.size() + addend.matrix_csr.col_indices_.size());
+        res.matrix_csr.col_indices_.reserve(matrix_csr.col_indices_.size() + addend.matrix_csr.col_indices_.size());  
 
-        ITYPE row = 0;
-        while (row < rows_) {
-            ITYPE start = matrix_csr.row_ptrs_[row];
-            ITYPE end = matrix_csr.row_ptrs_[row + 1];
+        auto defaultQueue = sycl::queue {sycl::gpu_selector_v};;
 
-            ITYPE addend_start = addend.matrix_csr.row_ptrs_[row];
-            ITYPE addend_end = addend.matrix_csr.row_ptrs_[row + 1];
+        double *d_matrix_values;
+        double *d_addend_values;
+        double *d_res_values;
 
-            res.matrix_csr.row_ptrs_[0] = 0;
+        int *d_matrix_col;
+        int *d_addend_col;
+        int *d_res_col;
+   
+        int *d_matrix_row;
+        int *d_addend_row;
+        int *d_res_row;
+        int *d_row_count;
+        
+        size_t size_matrix = matrix_csr.values_.size() ;
+        size_t size_addend = addend.matrix_csr.values_.size();
+        size_t size_res = (matrix_csr.values_.size() + addend.matrix_csr.values_.size());
 
-            // Merge the values and column indices of the two rows
-            ITYPE i = start;
-            ITYPE j = addend_start;
-            while (i < end && j < addend_end) {
-                ITYPE col = matrix_csr.col_indices_[i];
-                ITYPE addend_col = addend.matrix_csr.col_indices_[j];
+        size_t size_rows = (rows_ + 1);
 
-                if (col == addend_col) {
-                    // Add the corresponding values if the columns match
-                    if (std::abs(matrix_csr.values_[i] + addend.matrix_csr.values_[j]) >= std::numeric_limits<VTYPE>::min()){
-                        res.matrix_csr.values_.emplace_back(matrix_csr.values_[i] + addend.matrix_csr.values_[j]);
-                        res.matrix_csr.col_indices_.emplace_back(col);
-                    }
-                    i++;
-                    j++;
-                } else if (col < addend_col) {
-                    // Add the current value from the initial matrix
-                    if (std::abs(matrix_csr.values_[i]) >= std::numeric_limits<VTYPE>::min()){
-                        res.matrix_csr.values_.emplace_back(matrix_csr.values_[i]);
-                        res.matrix_csr.col_indices_.emplace_back(col);
-                    }
-                    i++;
-                } else {
-                    // Add the current value from the addend matrix
-                    if (std::abs(addend.matrix_csr.values_[j]) >= std::numeric_limits<VTYPE>::min()){
-                        res.matrix_csr.values_.emplace_back(addend.matrix_csr.values_[j]);
-                        res.matrix_csr.col_indices_.emplace_back(addend_col);
-                    }
-                    j++;
-                }
-            }
+        size_t size_matrix_col = matrix_csr.col_indices_.size() ;
+        size_t size_addend_col = addend.matrix_csr.col_indices_.size() ;
+        size_t size_res_col;// = (matrix_csr.col_indices_.size()+addend.matrix_csr.col_indices_.size());
 
-            // Add any remaining elements from the initial matrix
-            for (; i < end; i++) {
-                if (std::abs(matrix_csr.values_[i]) >= std::numeric_limits<VTYPE>::min()){
-                    res.matrix_csr.values_.emplace_back(matrix_csr.values_[i]);
-                    res.matrix_csr.col_indices_.emplace_back(matrix_csr.col_indices_[i]);
-                }
-            }
+        d_matrix_values = sycl::malloc_shared<double>(size_matrix,defaultQueue);
+        d_addend_values = sycl::malloc_shared<double>(size_addend,defaultQueue);
+         
+        d_matrix_col    = sycl::malloc_shared<int>(size_matrix_col,defaultQueue);
+        d_addend_col    = sycl::malloc_shared<int>(size_addend_col,defaultQueue);
+       
+        d_matrix_row    = sycl::malloc_shared<int>(size_rows,defaultQueue);
+        d_addend_row    = sycl::malloc_shared<int>(size_rows,defaultQueue);
+        d_row_count     = sycl::malloc_shared<int>(rows_,defaultQueue);
+        d_res_row       = sycl::malloc_shared<int>(size_rows,defaultQueue);
 
-            // Add any remaining elements from the addend matrix
-            for (; j < addend_end; j++) {
-                if (std::abs(addend.matrix_csr.values_[j]) >= std::numeric_limits<VTYPE>::min()){
-                    res.matrix_csr.values_.emplace_back(addend.matrix_csr.values_[j]);
-                    res.matrix_csr.col_indices_.emplace_back(addend.matrix_csr.col_indices_[j]);
-                }
-            }
-
-            // Update the row pointer
-            res.nnz_ = res.matrix_csr.col_indices_.size();
-            res.matrix_csr.row_ptrs_[row + 1] = res.nnz_;
-
-            row++;
+        for (int i=0;i<size_matrix;i++)
+        {
+            d_matrix_values[i] = matrix_csr.values_.at(i);
+            d_matrix_col[i]    = matrix_csr.col_indices_.at(i);
+        
+        }
+        for (int i=0;i<size_addend;i++)
+        {
+            d_addend_values[i] = addend.matrix_csr.values_.at(i);
+            d_addend_col[i] = addend.matrix_csr.col_indices_.at(i);
         }
 
-    } else if (matrix_format_ == format::CSC) {
+        for (int i=0;i<=rows_;i++)
+        {
+            d_matrix_row[i] = matrix_csr.row_ptrs_.at(i);
+            d_addend_row[i] = addend.matrix_csr.row_ptrs_.at(i);
+           
+        }
+
+        //auto defaultQueue = sycl::queue{sycl::default_selector_v};
+        /*
+        defaultQueue.memcpy(d_matrix_values,h_matrix_values,(size_matrix*sizeof(double))).wait();
+        defaultQueue.memcpy(d_addend_values,h_addend_values,(size_addend*sizeof(double))).wait();
+        defaultQueue.memcpy(d_matrix_col,h_matrix_col,(size_matrix*sizeof(int))).wait();
+        defaultQueue.memcpy(d_addend_col,h_addend_col,(size_addend*sizeof(int))).wait();
+        defaultQueue.memcpy(d_matrix_row,h_matrix_row,((rows_+1)*sizeof(int))).wait();
+        defaultQueue.memcpy(d_addend_row,h_addend_row,((rows_+1)*sizeof(int))).wait();
+        */
+
+        auto cg = [&](sycl::handler &h) 
+        {
+            
+            h.parallel_for(sycl::range(rows_),[=](sycl::id<1> idx) 
+            {
+                auto startIdx = d_matrix_row[idx];
+                auto endIdx = d_matrix_row[idx+1];
+                auto startaddIdx = d_addend_row[idx];
+                auto endaddIdx = d_addend_row[idx+1];
+                auto i = startIdx;
+                auto sum = 0.;
+                auto j = startaddIdx;
+                auto count = 0;
+                auto col = 0;
+                auto addend_col = 0;
+                i = startIdx;
+                while (i < endIdx && j < endaddIdx) 
+                {
+                    col = d_matrix_col[i];
+                    addend_col = d_addend_col[j];
+                    if (col == addend_col)
+                    {
+                        sum = d_matrix_values[i] + d_addend_values[j];
+                        i++;
+                        j++;
+                     
+                    }
+                    else if(col < addend_col)
+                    {
+                        sum = d_matrix_values[i];
+                        i++;
+                    
+                    }
+                    else
+                    {
+                        sum = d_addend_values[j];
+                        j++;
+                        
+                    }
+
+                    if (std::abs(sum) >= std::numeric_limits<VTYPE>::min())
+                    {
+                        count++;
+                    }
+                }
+                for (;i<endIdx;i++)
+                {
+                    sum = d_matrix_values[i];
+                    if (std::abs(sum) >=  std::numeric_limits<VTYPE>::min())
+                    {
+                        count++;
+                    }
+                }
+                for(;j<endaddIdx;j++)
+                {
+                    sum = d_addend_values[j];
+                    if (std::abs(sum) >=  std::numeric_limits<VTYPE>::min())
+                    {
+                        count++;
+                    }
+                }
+                d_row_count[idx] = count;
+            });
+        };        
+        defaultQueue.submit(cg).wait(); 
+        
+        auto chg = [&](sycl::handler &gh) 
+        {
+            gh.parallel_for(sycl::range(size_rows),[=](sycl::id<1> idx) 
+            {
+                d_res_row[idx] = 0;
+                auto count =0;
+                if (idx > 0)
+                {
+                    while (count < idx)
+                    {   
+                        d_res_row[idx] = d_res_row[idx]+d_row_count[count];
+                        count++;
+                    }
+                } 
+            });
+        };        
+        defaultQueue.submit(chg).wait(); 
+        
+       // defaultQueue.memcpy(h_res_row,d_res_row,(size_rows*sizeof(int))).wait();
+        size_res_col = d_res_row[rows_];
+
+        //h_res_values    = (double *)malloc(size_res_col* sizeof(double));
+        //h_res_col       = (int *)malloc(size_res_col*sizeof(int));
+
+        d_res_values    = sycl::malloc_shared<double>(size_res_col,defaultQueue);
+        d_res_col       = sycl::malloc_shared<int>(size_res_col,defaultQueue);
+        
+        auto cag = [&](sycl::handler &ga)
+        {
+            ga.parallel_for(sycl::range(rows_),[=](sycl::id<1>idx)
+            {
+                auto startIdx = d_matrix_row[idx];
+                auto endIdx = d_matrix_row[idx+1];
+                auto startaddIdx = d_addend_row[idx];
+                auto endaddIdx = d_addend_row[idx+1];
+                auto i = startIdx;
+                auto j = startaddIdx;
+                auto count = 0;
+                auto col = 0;
+                auto addend_col = 0;
+                auto placeHold = d_res_row[idx];
+                while (i < endIdx && j < endaddIdx) 
+                {
+                    col        = d_matrix_col[i];
+                    addend_col = d_addend_col[j];
+                    if (col == addend_col)
+                    {
+                        if (std::abs(d_matrix_values[i] + d_addend_values[j]) >= std::numeric_limits<VTYPE>::min())
+                        {                            
+                            d_res_values[placeHold + count] = d_matrix_values[i] + d_addend_values[j];
+                            d_res_col[placeHold + count] = col;
+                            count++;
+                        }
+                        i++;
+                        j++;    
+                    }
+                    else if (col < addend_col)
+                    {
+                        if (std::abs(d_matrix_values[i]) >= std::numeric_limits<VTYPE>::min())
+                        { 
+                            d_res_values[placeHold + count] = d_matrix_values[i];
+                            d_res_col[placeHold + count] = col;
+                            count++;
+                        }
+                        i++;    
+                    }
+                    else
+                    {
+                        if (std::abs(d_addend_values[j]) >= std::numeric_limits<VTYPE>::min())
+                        { 
+                            d_res_values[placeHold + count] = d_addend_values[j];
+                            d_res_col[placeHold + count] = addend_col;
+                            count++;
+                        }
+                        j++;   
+                    }
+                }
+                for (;i<endIdx;i++)
+                {
+                    col        = d_matrix_col[i];
+                    if (std::abs(d_matrix_values[i]) >= std::numeric_limits<VTYPE>::min())
+                    {
+                        d_res_values[placeHold + count] = d_matrix_values[i];
+                        d_res_col[placeHold + count] = col;
+                        count++;
+                    }
+                }
+                for (;j<endaddIdx;j++)
+                {
+                    addend_col = d_addend_col[j];
+                    if (std::abs(d_addend_values[j]) >= std::numeric_limits<VTYPE>::min())
+                    {
+                        d_res_values[placeHold + count] = d_addend_values[j];
+                        d_res_col[placeHold + count] = addend_col;
+                        count++;
+                    }
+                }
+            });
+        };
+        defaultQueue.submit(cag).wait(); 
+
+       //defaultQueue.memcpy(h_res_values,d_res_values,(size_res_col*sizeof(double))).wait();
+       //defaultQueue.memcpy(h_res_col,d_res_col,(size_res_col*sizeof(int))).wait();
+       res.matrix_sycl.values = sycl::malloc_shared<VTYPE>(size_res_col,defaultQueue);
+       res.matrix_sycl.column = sycl::malloc_shared<ITYPE>(size_res_col,defaultQueue);
+       res.matrix_sycl.row    = sycl::malloc_shared<ITYPE>((rows_+1),defaultQueue);
+       copy_sycl_data(defaultQueue,res.matrix_sycl.values,d_res_values,size_res_col);
+       copy_sycl_data(defaultQueue,res.matrix_sycl.column,d_res_col,size_res_col);
+       copy_sycl_data(defaultQueue,res.matrix_sycl.row,d_res_row,(rows_+1));
+       // defaultQueue.memcpy(h_res_values,d_res_values,(size_res*sizeof(double))).wait();             
+       // res.matrix_csr.values_.resize(size_res);
+       // res.matrix_csr.values_.resize(size_res);
+       sycl::free(d_res_values,defaultQueue);
+       sycl::free(d_res_col,defaultQueue);
+       sycl::free(d_res_row,defaultQueue);
+        for (int i=0;i<size_res_col;i++)
+        {
+            
+            res.matrix_csr.values_.emplace_back(res.matrix_sycl.values[i]);
+            res.matrix_csr.col_indices_.emplace_back(res.matrix_sycl.column[i]);
+        }
+        for (int i=0;i<=rows_;i++)
+        {
+            res.matrix_csr.row_ptrs_[i] = (res.matrix_sycl.row[i]);
+        }
+        res.nnz_ = res.matrix_csr.col_indices_.size();
+        res.matrix_csr.row_ptrs_[rows_ + 1] = res.nnz_;
+    } 
+
+
+    else if (matrix_format_ == format::CSC) {
 
         // Perform element-wise addition of the CSC vectors
         res.matrix_csc.values_.reserve(matrix_csc.values_.size() + addend.matrix_csc.values_.size());
         res.matrix_csc.row_indices_.reserve(matrix_csc.row_indices_.size() + addend.matrix_csc.row_indices_.size());
-        res.matrix_csc.col_ptrs_.resize(cols_ + 1);
-
+        res.matrix_csc.col_ptrs_.resize(cols_ + 1);   
+        
         ITYPE column = 0;
         while (column < cols_) {
             ITYPE start = matrix_csc.col_ptrs_[column];
@@ -224,7 +437,8 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::operator+(sparse_matrix<I
                 ITYPE row = matrix_csc.row_indices_[i];
                 ITYPE addend_row = addend.matrix_csc.row_indices_[j];
 
-                if (row == addend_row) {
+                if (row == addend_row) 
+                {
                     // Add the corresponding values if the columns match
                     if (std::abs(matrix_csc.values_[i] + addend.matrix_csc.values_[j]) >= std::numeric_limits<VTYPE>::min()) {
                         res.matrix_csc.values_.emplace_back(matrix_csc.values_[i] + addend.matrix_csc.values_[j]);
@@ -232,9 +446,11 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::operator+(sparse_matrix<I
                     }
                     i++;
                     j++;
-                } else if (row < addend_row) {
+                } 
+                else if (row < addend_row) {
                     // Add the current value from the initial matrix
-                    if (std::abs(matrix_csc.values_[i]) >= std::numeric_limits<VTYPE>::min()) {
+                    if (std::abs(matrix_csc.values_[i]) >= std::numeric_limits<VTYPE>::min()) 
+                    {
                         res.matrix_csc.values_.emplace_back(matrix_csc.values_[i]);
                         res.matrix_csc.row_indices_.emplace_back(row);
                     }
@@ -280,7 +496,7 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::operator+(sparse_matrix<I
         std::cerr << "    format::CSC: Compressed Sparse Column format" << std::endl;
         std::abort();
     }
-
+    
     return res;
 }
 
@@ -333,7 +549,8 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::operator-(sparse_matrix<I
    // Create a new sparse matrix object for the result
    sparse_matrix<ITYPE,VTYPE> res(rows_, cols_, this->get_format());
 
-   if (matrix_format_ == format::COO) {
+   if (matrix_format_ == format::COO) 
+   {
 
        std::vector<VTYPE> subtrahend_value;
        subtrahend_value.reserve(subtrahend.matrix_coo.values_.size());
@@ -360,79 +577,285 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::operator-(sparse_matrix<I
        // Sort and deduplicate the result
        res.sort_coo(true, true, "plus");
 
-    } else if (matrix_format_ == format::CSR) {
+    }
+     
+    else if (matrix_format_ == format::CSR) 
+    {
 
         // Perform element-wise subtraction of the CSR vectors
         res.matrix_csr.values_.reserve(matrix_csr.values_.size() + subtrahend.matrix_csr.values_.size());
         res.matrix_csr.row_ptrs_.resize(rows_ + 1);
         res.matrix_csr.col_indices_.reserve(matrix_csr.col_indices_.size() + subtrahend.matrix_csr.col_indices_.size());
+       
+        auto defaultQueue = sycl::queue {sycl::gpu_selector_v};
+            
+        
 
-        ITYPE row = 0;
-        while (row < rows_) {
-            ITYPE start = matrix_csr.row_ptrs_[row];
-            ITYPE end = matrix_csr.row_ptrs_[row + 1];
+        double *d_matrix_values;
+        double *d_subtrahend_values;
+        double *d_res_values;
 
-            ITYPE subtrahend_start = subtrahend.matrix_csr.row_ptrs_[row];
-            ITYPE subtrahend_end = subtrahend.matrix_csr.row_ptrs_[row + 1];
 
-            res.matrix_csr.row_ptrs_[0] = 0;
+        int *d_matrix_col;
+        int *d_subtrahend_col;
+        int *d_res_col;
+   
+        int *d_matrix_row;
+        int *d_subtrahend_row;
+        int *d_res_row;
+        int *d_row_count;
+        
+        size_t size_matrix = matrix_csr.values_.size() ;
+        size_t size_subtrahend = subtrahend.matrix_csr.values_.size();
+        size_t size_res = (matrix_csr.values_.size() + subtrahend.matrix_csr.values_.size());
 
-            // Merge the values and column indices of the two rows
-            ITYPE i = start;
-            ITYPE j = subtrahend_start;
-            while (i < end && j < subtrahend_end) {
-                ITYPE col = matrix_csr.col_indices_[i];
-                ITYPE subtrahend_col = subtrahend.matrix_csr.col_indices_[j];
+        size_t size_rows = (rows_ + 1);
 
-                if (col == subtrahend_col) {
-                    // Add the corresponding values if the columns match
-                    if (std::abs(matrix_csr.values_[i] - subtrahend.matrix_csr.values_[j]) >= std::numeric_limits<VTYPE>::min()) {
-                        res.matrix_csr.values_.emplace_back(matrix_csr.values_[i] - subtrahend.matrix_csr.values_[j]);
-                        res.matrix_csr.col_indices_.emplace_back(col);
-                    }
-                    i++;
-                    j++;
-                } else if (col < subtrahend_col) {
-                    // Add the current value from the initial matrix
-                    if (std::abs(matrix_csr.values_[i]) >= std::numeric_limits<VTYPE>::min()) {
-                        res.matrix_csr.values_.emplace_back(matrix_csr.values_[i]);
-                        res.matrix_csr.col_indices_.emplace_back(col);
-                    }
-                    i++;
-                } else {
-                    // Add the current value from the subtrahend matrix
-                    if (std::abs(-subtrahend.matrix_csr.values_[j]) >= std::numeric_limits<VTYPE>::min()) {
-                        res.matrix_csr.values_.emplace_back(-subtrahend.matrix_csr.values_[j]);
-                        res.matrix_csr.col_indices_.emplace_back(subtrahend_col);
-                    }
-                    j++;
-                }
-            }
+        size_t size_matrix_col = matrix_csr.col_indices_.size() ;
+        size_t size_subtrahend_col = subtrahend.matrix_csr.col_indices_.size() ;
+        size_t size_res_col;// = (matrix_csr.col_indices_.size()+addend.matrix_csr.col_indices_.size());
 
-            // Add any remaining elements from the initial matrix
-            for (; i < end; i++) {
-                if (std::abs(matrix_csr.values_[i]) >= std::numeric_limits<VTYPE>::min()) {
-                    res.matrix_csr.values_.emplace_back(matrix_csr.values_[i]);
-                    res.matrix_csr.col_indices_.emplace_back(matrix_csr.col_indices_[i]);
-                }
-            }
+        d_matrix_values     = sycl::malloc_shared<double>(size_matrix,defaultQueue);
+        d_subtrahend_values = sycl::malloc_shared<double>(size_subtrahend,defaultQueue);
+         
+        d_matrix_col        = sycl::malloc_shared<int>(size_matrix_col,defaultQueue);
+        d_subtrahend_col    = sycl::malloc_shared<int>(size_subtrahend_col,defaultQueue);
+       
+        d_matrix_row        = sycl::malloc_shared<int>(size_rows,defaultQueue);
+        d_subtrahend_row    = sycl::malloc_shared<int>(size_rows,defaultQueue);
+        d_row_count         = sycl::malloc_shared<int>(rows_,defaultQueue);
+        d_res_row           = sycl::malloc_shared<int>(size_rows,defaultQueue);
 
-            // Add any remaining elements from the subtrahend matrix
-            for (; j < subtrahend_end; j++) {
-                if (std::abs(-subtrahend.matrix_csr.values_[j]) >= std::numeric_limits<VTYPE>::min()) {
-                    res.matrix_csr.values_.emplace_back(-subtrahend.matrix_csr.values_[j]);
-                    res.matrix_csr.col_indices_.emplace_back(subtrahend.matrix_csr.col_indices_[j]);
-                }
-            }
-
-            // Update the row pointer
-            res.nnz_ = res.matrix_csr.col_indices_.size();
-            res.matrix_csr.row_ptrs_[row + 1] = res.nnz_;
-
-            row++;
+        for (int i=0;i<size_matrix;i++)
+        {
+            d_matrix_values[i] = matrix_csr.values_.at(i);
+            d_matrix_col[i]    = matrix_csr.col_indices_.at(i);
+        
+        }
+        for (int i=0;i<size_subtrahend;i++)
+        {
+            d_subtrahend_values[i] = subtrahend.matrix_csr.values_.at(i);
+            d_subtrahend_col[i] = subtrahend.matrix_csr.col_indices_.at(i);
         }
 
-    } else if (matrix_format_ == format::CSC) {
+        for (int i=0;i<=rows_;i++)
+        {
+            d_matrix_row[i] = matrix_csr.row_ptrs_.at(i);
+            d_subtrahend_row[i] = subtrahend.matrix_csr.row_ptrs_.at(i);
+           
+        }
+
+        //auto defaultQueue = sycl::queue{sycl::default_selector_v};
+        /*
+        defaultQueue.memcpy(d_matrix_values,h_matrix_values,(size_matrix*sizeof(double))).wait();
+        defaultQueue.memcpy(d_subtrahend_values,h_subtrahend_values,(size_subtrahend*sizeof(double))).wait();
+        defaultQueue.memcpy(d_matrix_col,h_matrix_col,(size_matrix*sizeof(int))).wait();
+        defaultQueue.memcpy(d_subtrahend_col,h_subtrahend_col,(size_subtrahend*sizeof(int))).wait();
+        defaultQueue.memcpy(d_matrix_row,h_matrix_row,((rows_+1)*sizeof(int))).wait();
+        defaultQueue.memcpy(d_subtrahend_row,h_subtrahend_row,((rows_+1)*sizeof(int))).wait();
+        */
+        
+        
+
+        auto cg = [&](sycl::handler &h) 
+        {
+            
+            h.parallel_for(sycl::range(rows_),[=](sycl::id<1> idx) 
+            {
+                auto startIdx = d_matrix_row[idx];
+                auto endIdx = d_matrix_row[idx+1];
+                auto startaddIdx = d_subtrahend_row[idx];
+                auto endaddIdx = d_subtrahend_row[idx+1];
+                auto i = startIdx;
+                auto j = startaddIdx;
+                auto count = 0;
+                auto col = 0;
+                auto subtrahend_col = 0;
+                i = startIdx;
+                auto result = 0.;
+                while (i < endIdx && j < endaddIdx) 
+                {
+                    col = d_matrix_col[i];
+                    subtrahend_col = d_subtrahend_col[j];
+                    if (col == subtrahend_col)
+                    {
+                        result = d_matrix_values[i] - d_subtrahend_values[j];
+                        i++;
+                        j++;
+                        
+                    }
+                    else if(col < subtrahend_col)
+                    {
+                        result = d_matrix_values[i] ;
+                        i++;
+                        
+                    }
+                    else
+                    {
+                        result = - d_subtrahend_values[j];
+                        j++;
+                        
+                    }
+
+                    if (std::abs(result) >= std::numeric_limits<VTYPE>::min())
+                    {
+                        count++;
+                    }
+                }
+                for (;i<endIdx;i++)
+                {
+                    result = d_matrix_values[i] ;
+                    if (std::abs(result) >= std::numeric_limits<VTYPE>::min())
+                    {
+                        count++;
+                    }
+                }
+                for(;j<endaddIdx;j++)
+                {
+                    result = - d_subtrahend_values[j];
+                    if (std::abs(result) >= std::numeric_limits<VTYPE>::min())
+                    {
+                        count++;
+                    }
+                }
+                
+                d_row_count[idx] = count;
+                
+            });
+        };        
+        defaultQueue.submit(cg).wait(); 
+        
+        auto chg = [&](sycl::handler &gh) 
+        {
+            gh.parallel_for(sycl::range(size_rows),[=](sycl::id<1> idx) 
+            {
+                d_res_row[idx] = 0;
+                auto count =0;
+                if (idx > 0)
+                {
+                    while (count < idx)
+                    {   
+                        d_res_row[idx] = d_res_row[idx]+d_row_count[count];
+                        count++;
+                    }
+                } 
+            });
+        };        
+        defaultQueue.submit(chg).wait(); 
+        
+       // defaultQueue.memcpy(h_res_row,d_res_row,(size_rows*sizeof(int))).wait();
+        size_res_col = d_res_row[rows_];
+
+        //h_res_values    = (double *)malloc(size_res_col* sizeof(double));
+        //h_res_col       = (int *)malloc(size_res_col*sizeof(int));
+
+        d_res_values    = sycl::malloc_shared<double>(size_res_col,defaultQueue);
+        d_res_col       = sycl::malloc_shared<int>(size_res_col,defaultQueue);
+        
+        auto cag = [&](sycl::handler &ga)
+        {
+            ga.parallel_for(sycl::range(rows_),[=](sycl::id<1>idx)
+            {
+                auto startIdx = d_matrix_row[idx];
+                auto endIdx = d_matrix_row[idx+1];
+                auto startaddIdx = d_subtrahend_row[idx];
+                auto endaddIdx = d_subtrahend_row[idx+1];
+                auto i = startIdx;
+                auto j = startaddIdx;
+                auto count = 0;
+                auto col = 0;
+                auto subtrahend_col = 0;
+                auto placeHold = d_res_row[idx];
+                while (i < endIdx && j < endaddIdx) 
+                {
+                    col        = d_matrix_col[i];
+                    subtrahend_col = d_subtrahend_col[j];
+                    if (col == subtrahend_col)
+                    {
+                        if (std::abs(d_matrix_values[i] - d_subtrahend_values[j]) >= std::numeric_limits<VTYPE>::min())
+                        {
+                            d_res_values[placeHold + count] = d_matrix_values[i] - d_subtrahend_values[j];
+                            d_res_col[placeHold + count] = col;                            
+                            count++;
+                        }
+                        i++;
+                        j++;
+                    }
+                    else if (col < subtrahend_col)
+                    {
+                        if (std::abs(d_matrix_values[i]) >= std::numeric_limits<VTYPE>::min())
+                        {
+                            d_res_values[placeHold + count] = d_matrix_values[i];
+                            d_res_col[placeHold + count] = col;
+                            count++;
+                        }
+                        i++;
+                    }
+                    else
+                    {
+                        if (std::abs(d_subtrahend_values[j]) >= std::numeric_limits<VTYPE>::min())
+                        {        
+                            d_res_values[placeHold + count] = - d_subtrahend_values[j];
+                            d_res_col[placeHold + count] = subtrahend_col;
+                            count++;
+                        }
+                        j++;
+                        
+                    }
+                }
+                for (;i<endIdx;i++)
+                {
+                    col = d_matrix_col[i];
+                    if (std::abs(d_matrix_values[i]) >= std::numeric_limits<VTYPE>::min())
+                    {
+                        d_res_values[placeHold + count] = d_matrix_values[i];
+                        d_res_col[placeHold + count] = col;
+                        count++;
+                    }
+                }
+                for (;j<endaddIdx;j++)
+                {
+                    subtrahend_col = d_subtrahend_col[j];
+                    if (std::abs(d_subtrahend_values[j]) >= std::numeric_limits<VTYPE>::min())
+                    {
+                        d_res_values[placeHold + count] = - d_subtrahend_values[j];
+                        d_res_col[placeHold + count] = subtrahend_col;
+                        count++;
+                    }
+                }
+            });
+        };
+        defaultQueue.submit(cag).wait(); 
+
+       // defaultQueue.memcpy(h_res_values,d_res_values,(size_res_col*sizeof(double))).wait();
+       // defaultQueue.memcpy(h_res_col,d_res_col,(size_res_col*sizeof(int))).wait();
+        
+       res.matrix_sycl.values = sycl::malloc_shared<VTYPE>(size_res_col,defaultQueue);
+       res.matrix_sycl.column = sycl::malloc_shared<ITYPE>(size_res_col,defaultQueue);
+       res.matrix_sycl.row    = sycl::malloc_shared<ITYPE>((rows_+1),defaultQueue);
+       copy_sycl_data(defaultQueue,res.matrix_sycl.values,d_res_values,size_res_col);
+       copy_sycl_data(defaultQueue,res.matrix_sycl.column,d_res_col,size_res_col);
+       copy_sycl_data(defaultQueue,res.matrix_sycl.row,d_res_row,(rows_+1));
+       sycl::free(d_res_values,defaultQueue);
+       sycl::free(d_res_col,defaultQueue);
+       sycl::free(d_res_row,defaultQueue);
+       // defaultQueue.memcpy(h_res_values,d_res_values,(size_res*sizeof(double))).wait();             
+       // res.matrix_csr.values_.resize(size_res);
+       // res.matrix_csr.values_.resize(size_res);
+        for (int i=0;i<size_res_col;i++)
+        {
+            res.matrix_csr.values_.emplace_back(res.matrix_sycl.values[i]);
+            res.matrix_csr.col_indices_.emplace_back(res.matrix_sycl.column[i]);
+        }
+        for (int i=0;i<=rows_;i++)
+        {
+            res.matrix_csr.row_ptrs_[i] = (res.matrix_sycl.row[i]);
+        }
+        res.nnz_ = res.matrix_csr.col_indices_.size();
+        res.matrix_csr.row_ptrs_[rows_ + 1] = res.nnz_;
+    }
+
+     else if (matrix_format_ == format::CSC) {
 
         // Perform element-wise subtraction of the CSC vectors
         res.matrix_csc.values_.reserve(matrix_csc.values_.size() + subtrahend.matrix_csc.values_.size());
@@ -518,17 +941,82 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::operator-(sparse_matrix<I
 
 // Overload multiplication operator to perform sparse matrix multiplication
 template<typename ITYPE, typename VTYPE>
-sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::operator*(sparse_matrix<ITYPE,VTYPE> &multiplicand) {
+void sparse_matrix<ITYPE,VTYPE>::sycl_multiply(sycl::queue defaultQueue, sparse_matrix<ITYPE,VTYPE> &matrix, sparse_matrix<ITYPE,VTYPE> &multi_vec)
+{
+    ITYPE vec_size = matrix.rows_;
+    sycl_multiply_mat_vec(defaultQueue,matrix_sycl.values,matrix_sycl.vector_val,matrix.matrix_sycl.values,multi_vec.matrix_sycl.vector_val,matrix_sycl.column,matrix_sycl.row,matrix.matrix_sycl.column,matrix.matrix_sycl.row, vec_size);
+}
 
+template<typename ITYPE, typename VTYPE>
+void sparse_matrix<ITYPE,VTYPE>::sycl_multiply_vector(sycl::queue defaultQueue, const sparse_matrix<ITYPE,VTYPE> &matrix, sparse_matrix<ITYPE,VTYPE> &multi_vec)
+{
+    ITYPE vec_size = matrix.rows_;
+    sycl_multiply_vec_vec(defaultQueue,matrix_sycl.vector_val,matrix.matrix_sycl.vector_val,multi_vec.matrix_sycl.vector_val, vec_size);
+}
+
+template<typename ITYPE, typename VTYPE>
+void sparse_matrix<ITYPE,VTYPE>::sycl_multiply_mat_vec(sycl::queue defaultQueue, VTYPE *res_mat, VTYPE *res_vec, VTYPE *mat_value, VTYPE *vec_value, ITYPE *res_col, ITYPE *res_row, ITYPE *mat_column, ITYPE *mat_row,  ITYPE size_row) 
+{
+    size_t rows = size_row;
+    auto cag = [&](sycl::handler &ga)
+    {
+        ga.parallel_for(sycl::range(rows),[=](sycl::id<1>idx)
+        {
+            auto startIdx = mat_row[idx];
+            auto endIdx = mat_row[idx+1];
+            auto col_idx = 0;
+            res_row[0] = 0;
+            res_vec[idx] = 0.;
+            for (int i = startIdx; i < endIdx; i++)
+            {
+                col_idx = mat_column[i];
+                res_vec[idx] += mat_value[i]*vec_value[col_idx];
+            }
+            res_mat[idx] = res_vec[idx];
+            res_col[idx] = 0;
+            res_row[idx+1] = idx;
+        });
+    };
+    defaultQueue.submit(cag).wait(); 
+    //for (int i=0;i<rows;i++)
+    //{
+    //    std::cout<< "Matrix values : " << res_mat[i] << " and vec value : " << res_vec[i] <<std::endl;
+    //}
+}
+
+template<typename ITYPE, typename VTYPE>
+void sparse_matrix<ITYPE,VTYPE>::sycl_multiply_vec_vec(sycl::queue defaultQueue, VTYPE *res_vec, VTYPE *mat_value, VTYPE *vec_value,  ITYPE size_row) 
+{
+    size_t rows = size_row;
+    auto cag = [&](sycl::handler &ga)
+    {
+        ga.parallel_for(sycl::range(rows),[=](sycl::id<1>idx)
+        {
+            res_vec[idx] = 0.;
+            if (abs(vec_value[idx])>= std::numeric_limits<VTYPE>::min())
+            {
+                res_vec[idx] = mat_value[idx]*vec_value[idx];
+            }
+        });
+    };
+    defaultQueue.submit(cag).wait(); 
+}
+template<typename ITYPE, typename VTYPE>
+sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::operator*(sparse_matrix<ITYPE,VTYPE> &multiplicand) 
+{
     if (cols_ != multiplicand.rows_) {
         std::cerr << "MUI Error [matrix_arithmetic.h]: matrix size mismatch during matrix multiplication" << std::endl;
         std::abort();
     }
-
-    if (multiplicand.matrix_format_ != matrix_format_) {
+    
+    if (multiplicand.matrix_format_ != matrix_format_) 
+    {
         multiplicand.format_conversion(this->get_format(), true, true, "overwrite");
-    } else {
-        if (!multiplicand.is_sorted_unique("matrix_arithmetic.h", "operator*()")){
+    } 
+    else 
+    {
+        if (!multiplicand.is_sorted_unique("matrix_arithmetic.h", "operator*()"))
+        {
             if (multiplicand.matrix_format_ == format::COO) {
                 multiplicand.sort_coo(true, true, "overwrite");
             } else if (multiplicand.matrix_format_ == format::CSR) {
@@ -546,39 +1034,52 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::operator*(sparse_matrix<I
         }
     }
 
-     if (!this->is_sorted_unique("matrix_arithmetic.h", "operator*()")){
-         if (matrix_format_ == format::COO) {
-             this->sort_coo(true, true, "overwrite");
-         } else if (matrix_format_ == format::CSR) {
-             this->sort_csr(true, "overwrite");
-         } else if (matrix_format_ == format::CSC) {
-             this->sort_csc(true, "overwrite");
-         } else {
-             std::cerr << "MUI Error [matrix_arithmetic.h]: Unrecognised matrix format for matrix operator*()" << std::endl;
-             std::cerr << "    Please set the matrix_format_ as:" << std::endl;
-             std::cerr << "    format::COO: COOrdinate format" << std::endl;
-             std::cerr << "    format::CSR (default): Compressed Sparse Row format" << std::endl;
-             std::cerr << "    format::CSC: Compressed Sparse Column format" << std::endl;
-             std::abort();
-         }
-     }
+    if (!this->is_sorted_unique("matrix_arithmetic.h", "operator*()"))
+    {
+        if (matrix_format_ == format::COO) 
+        {
+            this->sort_coo(true, true, "overwrite");
+        } 
+        else if (matrix_format_ == format::CSR) 
+        {
+            this->sort_csr(true, "overwrite");
+        } 
+        else if (matrix_format_ == format::CSC) 
+        {
+            this->sort_csc(true, "overwrite");
+        } 
+        else 
+        {
+            std::cerr << "MUI Error [matrix_arithmetic.h]: Unrecognised matrix format for matrix operator*()" << std::endl;
+            std::cerr << "    Please set the matrix_format_ as:" << std::endl;
+            std::cerr << "    format::COO: COOrdinate format" << std::endl;
+            std::cerr << "    format::CSR (default): Compressed Sparse Row format" << std::endl;
+            std::cerr << "    format::CSC: Compressed Sparse Column format" << std::endl;
+            std::abort();
+        }
+    }
 
     // Create a new sparse matrix object for the result
     sparse_matrix<ITYPE,VTYPE> res(rows_, multiplicand.cols_, this->get_format());
 
-    if (matrix_format_ == format::COO) {
+    if (matrix_format_ == format::COO) 
+    {
 
         // Perform element-wise multiplication of the COO vectors
         res.matrix_coo.values_.reserve((matrix_coo.values_.size() <= multiplicand.matrix_coo.values_.size()) ? multiplicand.matrix_coo.values_.size() : matrix_coo.values_.size());
         res.matrix_coo.row_indices_.reserve((matrix_coo.row_indices_.size() <= multiplicand.matrix_coo.row_indices_.size()) ? multiplicand.matrix_coo.row_indices_.size() : matrix_coo.row_indices_.size());
         res.matrix_coo.col_indices_.reserve((matrix_coo.col_indices_.size() <= multiplicand.matrix_coo.col_indices_.size()) ? multiplicand.matrix_coo.col_indices_.size() : matrix_coo.col_indices_.size());
 
-        for (ITYPE i = 0; i < static_cast<ITYPE>(matrix_coo.row_indices_.size()); ++i) {
-            for (ITYPE j = 0; j < static_cast<ITYPE>(multiplicand.matrix_coo.col_indices_.size()); ++j) {
-                if (matrix_coo.col_indices_[i] == multiplicand.matrix_coo.row_indices_[j]) {
+        for (ITYPE i = 0; i < static_cast<ITYPE>(matrix_coo.row_indices_.size()); ++i) 
+        {
+            for (ITYPE j = 0; j < static_cast<ITYPE>(multiplicand.matrix_coo.col_indices_.size()); ++j) 
+            {
+                if (matrix_coo.col_indices_[i] == multiplicand.matrix_coo.row_indices_[j]) 
+                {
                     // Multiply the corresponding values if the columns match
                     VTYPE value = matrix_coo.values_[i] * multiplicand.matrix_coo.values_[j];
-                    if (std::abs(value) >= std::numeric_limits<VTYPE>::min()) {
+                    if (std::abs(value) >= std::numeric_limits<VTYPE>::min()) 
+                    {
                         res.matrix_coo.values_.emplace_back(value);
                         res.matrix_coo.row_indices_.emplace_back(matrix_coo.row_indices_[i]);
                         res.matrix_coo.col_indices_.emplace_back(multiplicand.matrix_coo.col_indices_[j]);
@@ -589,60 +1090,322 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::operator*(sparse_matrix<I
 
         // Sort and deduplicate the result
         res.sort_coo(true, true, "plus");
-
         res.nnz_ = res.matrix_coo.values_.size();
 
-    } else if (matrix_format_ == format::CSR) {
+    } 
+    
+    else if (matrix_format_ == format::CSR) 
+    {
 
         // Perform element-wise multiplication of the CSR vectors
         res.matrix_csr.values_.reserve((matrix_csr.values_.size() <= multiplicand.matrix_csr.values_.size()) ? multiplicand.matrix_csr.values_.size() : matrix_csr.values_.size());
         res.matrix_csr.row_ptrs_.resize(rows_+1);
         res.matrix_csr.col_indices_.reserve((matrix_csr.col_indices_.size() <= multiplicand.matrix_csr.col_indices_.size()) ? multiplicand.matrix_csr.col_indices_.size() : matrix_csr.col_indices_.size());
 
+        
+        auto defaultQueue = sycl::queue {sycl::gpu_selector_v};;
+      
+        double *d_matrix_values;
+        double *d_multiplicand_values;
+        double *d_res_values;
+
+        int *d_matrix_col;
+        int *d_multiplicand_col;
+        int *d_res_col;
+        
+        int *d_matrix_row;
+        int *d_multiplicand_row;
+        int *d_res_row;
+        int *d_row_count;
+
+        int *d_intermediate;
+        int *d_intermediate_col;
+        int *d_intermediate_rowid;
+        int *d_intermediate_row;
+        double *d_intermediate_values;
+        int *h_intermediate;
+        double *d_value;
+
+        size_t size_matrix = matrix_csr.values_.size() ;
+        size_t size_multiplicand = multiplicand.matrix_csr.values_.size();
+        size_t size_res;// = (matrix_csr.values_.size() + subtrahend.matrix_csr.values_.size());
+
+        size_t size_rows = (rows_ + 1);
+        size_t size_cols = multiplicand.cols_;
+        size_t size_matrix_col = matrix_csr.col_indices_.size() ;
+        size_t size_multiplicand_col = multiplicand.matrix_csr.col_indices_.size() ;
+        size_t size_res_col;// = (matrix_csr.col_indices_.size()+addend.matrix_csr.col_indices_.size());
+
+        h_intermediate = (int *)malloc(size_cols);
+
+        d_matrix_values       = sycl::malloc_shared<double>(size_matrix,defaultQueue);
+        d_multiplicand_values = sycl::malloc_shared<double>(size_multiplicand,defaultQueue);
+         
+        d_matrix_col          = sycl::malloc_shared<int>(size_matrix_col,defaultQueue);
+        d_multiplicand_col    = sycl::malloc_shared<int>(size_multiplicand_col,defaultQueue);
+       
+        d_matrix_row          = sycl::malloc_shared<int>(size_rows,defaultQueue);
+        d_multiplicand_row    = sycl::malloc_shared<int>(size_rows,defaultQueue);
+        d_row_count           = sycl::malloc_shared<int>(rows_,defaultQueue);
+        d_res_row             = sycl::malloc_shared<int>(size_rows,defaultQueue);
+        d_intermediate        = sycl::malloc_device<int>(size_cols,defaultQueue);
+        d_intermediate_col    = sycl::malloc_shared<int>((size_cols+1),defaultQueue);
+        d_intermediate_rowid  = sycl::malloc_shared<int>((size_multiplicand),defaultQueue);
+        d_intermediate_row    = sycl::malloc_shared<int>((size_multiplicand),defaultQueue);
+        d_intermediate_values = sycl::malloc_shared<double>((size_multiplicand),defaultQueue);
+        d_value               = sycl::malloc_shared<double>((rows_*size_cols),defaultQueue);
+
+        for (int i=0;i<size_matrix;i++)
+        {
+            d_matrix_values[i] = matrix_csr.values_.at(i);
+            d_matrix_col[i]    = matrix_csr.col_indices_.at(i);
+           
+        
+        }
+        for (int i=0;i<size_multiplicand;i++)
+        {
+            d_multiplicand_values[i] = multiplicand.matrix_csr.values_.at(i);
+            d_multiplicand_col[i] = multiplicand.matrix_csr.col_indices_.at(i);
+
+        }
+
+        for (int i=0;i<=rows_;i++)
+        {
+            d_matrix_row[i] = matrix_csr.row_ptrs_.at(i);
+            d_multiplicand_row[i] = multiplicand.matrix_csr.row_ptrs_.at(i);
+        }
+        for (int i=0;i<size_cols;i++)
+        {
+            h_intermediate[i] = 0;
+        }
+        for (int i=0;i<(rows_ * size_cols);i++)
+        {
+            d_value[i] = 0;
+        }
+        defaultQueue.memcpy(d_intermediate,h_intermediate,(size_cols*sizeof(int))).wait();
+        
         // Initialize a vector to store the intermediate results
+       
         std::vector<VTYPE> intermediate(multiplicand.cols_, 0.0);
 
         res.matrix_csr.row_ptrs_[0] = 0;
 
+        auto cgc = [&](sycl::handler &hc) 
+        {
+            hc.parallel_for(sycl::range(size_multiplicand),[=](sycl::id<1> idx) 
+            {
+                auto column = d_multiplicand_col[idx];
+                d_intermediate_row[idx] = -1;
+                auto addi = 1;
+                //d_intermediate[column]+=1;
+                auto v = sycl::atomic_ref<
+                         int, sycl::memory_order::relaxed,
+                         sycl::memory_scope::device,
+                         sycl::access::address_space::global_space>(d_intermediate[column]);
+                v.fetch_add(addi);
+
+            });
+        };
+        defaultQueue.submit(cgc).wait(); 
+
+        auto cgs = [&](sycl::handler &hs) 
+        {
+            hs.parallel_for(sycl::range((size_cols+1)),[=](sycl::id<1> idx) 
+            {
+                d_intermediate_col[idx] = 0;
+                auto count =0;
+                if (idx > 0)
+                {
+                    while (count < idx)
+                    {   
+                        d_intermediate_col[idx] = d_intermediate_col[idx]+d_intermediate[count];
+                        count++;
+                    }
+                } 
+            });
+        };
+        defaultQueue.submit(cgs).wait();
+
+        auto cgrs = [&](sycl::handler &rhs) 
+        {
+            rhs.parallel_for(sycl::range((size_cols)),[=](sycl::id<1> idx) 
+            {
+                d_intermediate[idx] = d_intermediate_col[idx]; 
+            });
+        };
+        defaultQueue.submit(cgrs).wait();
+     
+        auto cgr = [&](sycl::handler &hr)
+        {
+            hr.parallel_for(sycl::range((size_rows - 1)),[=](sycl::id<1> idx)
+            {
+                auto row_start = d_multiplicand_row[idx];
+                auto row_end = d_multiplicand_row[idx+1];
+                for (int i=row_start;i<row_end;i++)
+                {
+                    d_intermediate_rowid[i] = idx;
+                }
+            });
+        };
+        defaultQueue.submit(cgr).wait();
+       
+        auto cgv = [&](sycl::handler &hv)
+        {
+            hv.parallel_for(sycl::range(size_cols),[=](sycl::id<1> idx)
+            {
+                auto start = d_intermediate_col[idx];
+                auto end = d_intermediate_col[idx+1]; 
+                //auto i=start;
+                auto count = 0; 
+                for (int i=start;i<end;i++)
+                {
+                    auto loc = d_multiplicand_col[i];
+                    auto pos = d_intermediate_col[loc];
+                    auto v = sycl::atomic_ref<
+                         int, sycl::memory_order::relaxed,
+                         sycl::memory_scope::device,
+                         sycl::access::address_space::global_space>(d_intermediate[loc]);
+                    auto index = v.fetch_add(1);
+                    d_intermediate_row[index] = d_intermediate_rowid[i];
+                    d_intermediate_values[index] = d_multiplicand_values[i];
+                    ++count;
+                }
+            });
+        };
+        defaultQueue.submit(cgv).wait();
+
+        auto cgd = [&](sycl::handler &hd) 
+        {
+            hd.parallel_for(sycl::range(rows_),[=](sycl::id<1> idx) 
+            {
+                d_intermediate[idx] = 0;
+                auto start = d_matrix_row[idx];
+                auto end = d_matrix_row[idx+1];
+
+                for (int k=0;k<size_cols;k++)
+                { 
+                    auto count = 0.;
+                    auto multiplication_start = d_intermediate_col[k];
+                    auto multiplication_end = d_intermediate_col[k+1];
+                    auto i = start;
+                    //auto j= multiplication_start;
+                    while (i<end )
+                    {
+                        auto mat_index = d_matrix_col[i];
+                        auto mat_value = d_matrix_values[i];
+                            
+                        for (int j=multiplication_start;j<multiplication_end;j++)
+                        {
+                            auto multi_index = d_intermediate_row[j];
+                            auto multi_value = d_intermediate_values[j];
+                            if (mat_index == multi_index)
+                            {
+                                count += mat_value*multi_value;
+                            }
+                        }
+                        i++;
+                    }
+                    if (std::abs(count) >= std::numeric_limits<VTYPE>::min() )
+                    {
+                        d_intermediate[idx] += 1;
+                    }
+                }
+            });
+        };
+        defaultQueue.submit(cgd).wait();
+        
+        auto cgf = [&](sycl::handler &hf) 
+        {
+            hf.parallel_for(sycl::range((size_rows)),[=](sycl::id<1> idx) 
+            {
+                d_res_row[idx] = 0;
+                auto count =0;
+                if (idx > 0)
+                {
+                    while (count < idx)
+                    {   
+                        d_res_row[idx] = d_res_row[idx]+d_intermediate[count];
+                        count++;
+                    }
+                }
+
+            });
+        };
+        defaultQueue.submit(cgf).wait();
+
+        size_res_col = d_res_row[rows_];
+        //h_res_values    = (double *)malloc(size_res_col* sizeof(double));
+        //h_res_col       = (int *)malloc(size_res_col*sizeof(int));
+
+        d_res_values    = sycl::malloc_shared<double>(size_res_col,defaultQueue);
+        d_res_col       = sycl::malloc_shared<int>(size_res_col,defaultQueue);
+
+        auto cg = [&](sycl::handler &h) 
+        {
+            h.parallel_for(sycl::range(rows_),[=](sycl::id<1> idx) 
+            {
+                d_intermediate[idx] = 0;
+                auto start = d_matrix_row[idx];
+                auto end = d_matrix_row[idx+1];
+                auto placeHold = d_res_row[idx];
+                auto count = 0;
+                for (int k=0;k<size_cols;k++)
+                { 
+                         auto product = 0.;
+                         auto multiplication_start = d_intermediate_col[k];
+                         auto multiplication_end = d_intermediate_col[k+1];
+                         auto i = start;
+                         //auto j= multiplication_start;
+                         while (i<end)
+                         {
+                            auto mat_index = d_matrix_col[i];
+                            auto mat_value = d_matrix_values[i];
+                            
+                            for (int j=multiplication_start;j<multiplication_end;j++)
+                            {
+                                auto multi_index = d_intermediate_row[j];
+                                auto multi_value = d_intermediate_values[j];
+                                if (mat_index == multi_index)
+                                {
+                                    product += mat_value*multi_value;
+                                }
+                            }
+                            i++;
+                        }
+                        if (std::abs(product) >= std::numeric_limits<VTYPE>::min())  
+                        {   
+                            d_res_values[placeHold + count] = product;
+                            d_res_col[placeHold + count] = k;
+                            count++;
+                        }   
+                    }
+            });
+        };
+        defaultQueue.submit(cg).wait();
+        
         // Iterate over each row of the initial matrix
-        for (ITYPE i = 0; i < rows_; ++i) {
-            // Clear the intermediate results vector for each row
-            std::fill(intermediate.begin(), intermediate.end(), 0.0);
+       res.matrix_sycl.values = sycl::malloc_shared<VTYPE>(size_res_col,defaultQueue);
+       res.matrix_sycl.column = sycl::malloc_shared<ITYPE>(size_res_col,defaultQueue);
+       res.matrix_sycl.row    = sycl::malloc_shared<ITYPE>((rows_+1),defaultQueue);
+       copy_sycl_data(defaultQueue,res.matrix_sycl.values,d_res_values,size_res_col);
+       copy_sycl_data(defaultQueue,res.matrix_sycl.column,d_res_col,size_res_col);
+       copy_sycl_data(defaultQueue,res.matrix_sycl.row,d_res_row,(rows_+1));
 
-            ITYPE start = matrix_csr.row_ptrs_[i];
-            ITYPE end = matrix_csr.row_ptrs_[i + 1];
-
-            // Iterate over the non-zero elements of the row
-            for (ITYPE j = start; j < end; ++j) {
-                // Get the column index and value of the element
-                ITYPE col = matrix_csr.col_indices_[j];
-                VTYPE value = matrix_csr.values_[j];
-
-                ITYPE multiplicand_start = multiplicand.matrix_csr.row_ptrs_[col];
-                ITYPE multiplicand_end = multiplicand.matrix_csr.row_ptrs_[col + 1];
-
-                // Multiply the element with the corresponding column of the other matrix
-                for (ITYPE k = multiplicand_start; k < multiplicand_end; ++k) {
-                    ITYPE multiplicand_col = multiplicand.matrix_csr.col_indices_[k];
-                    VTYPE multiplicand_value = multiplicand.matrix_csr.values_[k];
-                    intermediate[multiplicand_col] += value * multiplicand_value;
-                }
-            }
-
-            // Add the intermediate results to the result vectors
-            for (ITYPE j = 0; j < multiplicand.cols_; ++j) {
-                VTYPE result_value = intermediate[j];
-                if (std::abs(result_value) >= std::numeric_limits<VTYPE>::min()) {
-                    res.matrix_csr.values_.emplace_back(result_value);
-                    res.matrix_csr.col_indices_.emplace_back(j);
-                }
-            }
-            res.matrix_csr.row_ptrs_[i+1]=res.matrix_csr.values_.size();
+        for (ITYPE j = 0; j < size_res_col; ++j) 
+        {
+            res.matrix_csr.values_.emplace_back(res.matrix_sycl.values[j]);
+            res.matrix_csr.col_indices_.emplace_back(res.matrix_sycl.column[j]);
         }
-
+        for (ITYPE j = 0; j < size_rows; ++j) 
+        {
+            res.matrix_csr.row_ptrs_[j] = res.matrix_sycl.row[j];
+        }
+       // res.matrix_csr.row_ptrs_[i+1]=res.matrix_csr.values_.size();
         res.nnz_ = res.matrix_csr.values_.size();
+    }
 
-    } else if (matrix_format_ == format::CSC) {
+    else if (matrix_format_ == format::CSC) 
+    {
 
         // Perform element-wise multiplication of the CSC vectors
         res.matrix_csc.values_.reserve((matrix_csc.values_.size() <= multiplicand.matrix_csc.values_.size()) ? multiplicand.matrix_csc.values_.size() : matrix_csc.values_.size());
@@ -692,7 +1455,9 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::operator*(sparse_matrix<I
 
         res.nnz_ = res.matrix_csc.values_.size();
 
-    } else {
+    } 
+    else
+    {
         std::cerr << "MUI Error [matrix_arithmetic.h]: Unrecognised matrix format for matrix operator*()" << std::endl;
         std::cerr << "    Please set the matrix_format_ as:" << std::endl;
         std::cerr << "    format::COO: COOrdinate format" << std::endl;
@@ -707,35 +1472,92 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::operator*(sparse_matrix<I
 // Overload multiplication operator to perform scalar multiplication A*x
 template <typename ITYPE, typename VTYPE>
 template <typename STYPE>
-sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::operator*(const STYPE &scalar) const {
+sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::operator*(const STYPE &scalar) const{
     static_assert(std::is_convertible<STYPE, VTYPE>::value,
             "MUI Error [matrix_arithmetic.h]: scalar type cannot be converted to matrix element type in scalar multiplication");
 
     // Create a new sparse matrix object for the result
     sparse_matrix<ITYPE,VTYPE> res(*this);
 
-    if (matrix_format_ == format::COO) {
-
-        for (VTYPE &element : res.matrix_coo.values_) {
+    if (matrix_format_ == format::COO) 
+    {
+        
+        for (VTYPE &element : res.matrix_coo.values_) 
+        {
             if (static_cast<VTYPE>(scalar) >= std::numeric_limits<VTYPE>::min())
                 element *= scalar;
-       }
+        }
 
-    } else if (matrix_format_ == format::CSR) {
+    }
 
-        for (VTYPE &element : res.matrix_csr.values_) {
+    else if (matrix_format_ == format::CSR) 
+    {
+
+        size_t size_matrix = matrix_csr.values_.size();
+        size_t size_rows = matrix_csr.row_ptrs_.size();
+       
+        auto defaultQueue = sycl::queue {sycl::gpu_selector_v};
+        
+        VTYPE *d_res_values;
+        ITYPE *d_res_rows;
+        ITYPE *d_res_col;
+
+        d_res_values = sycl::malloc_shared<VTYPE>(size_matrix,defaultQueue);
+        d_res_col = sycl::malloc_shared<ITYPE>(size_matrix,defaultQueue);
+        d_res_rows = sycl::malloc_shared<ITYPE>(size_rows,defaultQueue);
+        for (int i=0;i<size_matrix;i++)
+        {
+            d_res_values[i] = matrix_csr.values_[i];
+            d_res_col[i] = matrix_csr.col_indices_[i];
+        }
+        for (int i=0;i<size_rows;i++)
+        {
+            d_res_rows[i] = matrix_csr.row_ptrs_[i];
+        }
+        
+        //defaultQueue.memcpy(d_res_values,h_res_values,(size_matrix*sizeof(double))).wait();
+        auto cg = [&](sycl::handler &h) 
+        {
+            h.parallel_for(sycl::range(size_matrix),[=](sycl::id<1> idx) 
+            {
+                d_res_values[idx] = scalar*d_res_values[idx];
+            });
+        };
+        defaultQueue.submit(cg).wait(); 
+
+        //defaultQueue.memcpy(h_res_values,d_res_values,(size_matrix*sizeof(double))).wait();
+        
+
+        res.matrix_sycl.values = sycl::malloc_shared<VTYPE>(size_matrix,defaultQueue);
+        res.matrix_sycl.column = sycl::malloc_shared<ITYPE>(size_matrix,defaultQueue);
+        res.matrix_sycl.row = sycl::malloc_shared<ITYPE>(size_rows,defaultQueue);
+
+        copy_sycl_data(defaultQueue,res.matrix_sycl.values,d_res_values,size_matrix);
+        copy_sycl_data(defaultQueue,res.matrix_sycl.column,d_res_col,size_matrix);
+        copy_sycl_data(defaultQueue,res.matrix_sycl.row,d_res_rows,size_rows);
+       
+       sycl::free(d_res_values,defaultQueue);
+       sycl::free(d_res_col,defaultQueue);
+       sycl::free(d_res_rows,defaultQueue);
+
+        for (int i=0;i<size_matrix;i++)
+        {
+            res.matrix_csr.values_.at(i) =res.matrix_sycl.values[i];
+        }
+    }
+
+    else if (matrix_format_ == format::CSC) 
+    {
+
+        for (VTYPE &element : res.matrix_csc.values_) 
+        {
             if (static_cast<VTYPE>(scalar) >= std::numeric_limits<VTYPE>::min())
                 element *= scalar;
-       }
+        }
 
-    } else if (matrix_format_ == format::CSC) {
-
-        for (VTYPE &element : res.matrix_csc.values_) {
-            if (static_cast<VTYPE>(scalar) >= std::numeric_limits<VTYPE>::min())
-                element *= scalar;
-       }
-
-    } else {
+    } 
+    else 
+    {
         std::cerr << "MUI Error [matrix_arithmetic.h]: Unrecognised matrix format for matrix scalar operator*()" << std::endl;
         std::cerr << "    Please set the matrix_format_ as:" << std::endl;
         std::cerr << "    format::COO: COOrdinate format" << std::endl;
@@ -748,36 +1570,462 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::operator*(const STYPE &sc
 
 }
 
+
 // Overload multiplication operator to perform scalar multiplication x*A
 template<typename ITYPE, typename VTYPE, typename STYPE>
 sparse_matrix<ITYPE,VTYPE> operator*(const STYPE &scalar, const sparse_matrix<ITYPE,VTYPE> &exist_mat) {
    return exist_mat * scalar;
 }
 
+
+template<typename ITYPE, typename VTYPE>
+sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::operator^(sparse_matrix<ITYPE,VTYPE> &multiplicand) {
+
+    
+    if (cols_ != multiplicand.rows_) {
+        std::cerr << "MUI Error [matrix_arithmetic.h]: matrix size mismatch during matrix multiplication" << std::endl;
+        std::abort();
+    }
+    
+    if (multiplicand.matrix_format_ != matrix_format_) 
+    {
+        multiplicand.format_conversion(this->get_format(), true, true, "overwrite");
+    } 
+    else 
+    {
+        if (!multiplicand.is_sorted_unique("matrix_arithmetic.h", "operator*()"))
+        {
+            if (multiplicand.matrix_format_ == format::COO) {
+                multiplicand.sort_coo(true, true, "overwrite");
+            } else if (multiplicand.matrix_format_ == format::CSR) {
+                multiplicand.sort_csr(true, "overwrite");
+            } else if (multiplicand.matrix_format_ == format::CSC) {
+                multiplicand.sort_csc(true, "overwrite");
+            } else {
+                std::cerr << "MUI Error [matrix_arithmetic.h]: Unrecognised multiplicand matrix format for matrix operator*()" << std::endl;
+                std::cerr << "    Please set the multiplicand matrix_format_ as:" << std::endl;
+                std::cerr << "    format::COO: COOrdinate format" << std::endl;
+                std::cerr << "    format::CSR (default): Compressed Sparse Row format" << std::endl;
+                std::cerr << "    format::CSC: Compressed Sparse Column format" << std::endl;
+                std::abort();
+            }
+        }
+    }
+
+    if (!this->is_sorted_unique("matrix_arithmetic.h", "operator*()"))
+    {
+         if (matrix_format_ == format::COO) {
+             this->sort_coo(true, true, "overwrite");
+         } else if (matrix_format_ == format::CSR) {
+             this->sort_csr(true, "overwrite");
+         } else if (matrix_format_ == format::CSC) {
+             this->sort_csc(true, "overwrite");
+         } else {
+             std::cerr << "MUI Error [matrix_arithmetic.h]: Unrecognised matrix format for matrix operator*()" << std::endl;
+             std::cerr << "    Please set the matrix_format_ as:" << std::endl;
+             std::cerr << "    format::COO: COOrdinate format" << std::endl;
+             std::cerr << "    format::CSR (default): Compressed Sparse Row format" << std::endl;
+             std::cerr << "    format::CSC: Compressed Sparse Column format" << std::endl;
+             std::abort();
+         }
+    }
+
+    // Create a new sparse matrix object for the result
+    sparse_matrix<ITYPE,VTYPE> res(rows_, multiplicand.cols_, this->get_format());
+
+    if (matrix_format_ == format::COO) 
+    {
+
+        // Perform element-wise multiplication of the COO vectors
+        res.matrix_coo.values_.reserve((matrix_coo.values_.size() <= multiplicand.matrix_coo.values_.size()) ? multiplicand.matrix_coo.values_.size() : matrix_coo.values_.size());
+        res.matrix_coo.row_indices_.reserve((matrix_coo.row_indices_.size() <= multiplicand.matrix_coo.row_indices_.size()) ? multiplicand.matrix_coo.row_indices_.size() : matrix_coo.row_indices_.size());
+        res.matrix_coo.col_indices_.reserve((matrix_coo.col_indices_.size() <= multiplicand.matrix_coo.col_indices_.size()) ? multiplicand.matrix_coo.col_indices_.size() : matrix_coo.col_indices_.size());
+
+        for (ITYPE i = 0; i < static_cast<ITYPE>(matrix_coo.row_indices_.size()); ++i) 
+        {
+            for (ITYPE j = 0; j < static_cast<ITYPE>(multiplicand.matrix_coo.col_indices_.size()); ++j) 
+            {
+                if (matrix_coo.col_indices_[i] == multiplicand.matrix_coo.row_indices_[j]) 
+                {
+                    // Multiply the corresponding values if the columns match
+                    VTYPE value = matrix_coo.values_[i] * multiplicand.matrix_coo.values_[j];
+                    if (std::abs(value) >= std::numeric_limits<VTYPE>::min()) 
+                    {
+                        res.matrix_coo.values_.emplace_back(value);
+                        res.matrix_coo.row_indices_.emplace_back(matrix_coo.row_indices_[i]);
+                        res.matrix_coo.col_indices_.emplace_back(multiplicand.matrix_coo.col_indices_[j]);
+                    }
+                }
+            }
+        }
+
+        // Sort and deduplicate the result
+        res.sort_coo(true, true, "plus");
+        res.nnz_ = res.matrix_coo.values_.size();
+
+    } 
+    
+    else if (matrix_format_ == format::CSR) 
+    {
+
+        // Perform element-wise multiplication of the CSR vectors
+        res.matrix_csr.values_.reserve((matrix_csr.values_.size() <= multiplicand.matrix_csr.values_.size()) ? multiplicand.matrix_csr.values_.size() : matrix_csr.values_.size());
+        res.matrix_csr.row_ptrs_.resize(rows_+1);
+        res.matrix_csr.col_indices_.reserve((matrix_csr.col_indices_.size() <= multiplicand.matrix_csr.col_indices_.size()) ? multiplicand.matrix_csr.col_indices_.size() : matrix_csr.col_indices_.size());
+
+       
+        auto defaultQueue = sycl::queue {sycl::gpu_selector_v};
+      
+        double *d_matrix_values;
+        double *d_multiplicand_values;
+        double *d_res_values;
+
+        int *d_matrix_col;
+        int *d_multiplicand_col;
+        int *d_res_col;
+        
+        int *d_matrix_row;
+        int *d_multiplicand_row;
+        int *d_res_row;
+        int *d_row_count;
+
+        int *d_intermediate;
+        int *d_intermediate_col;
+        int *d_intermediate_rowid;
+        int *d_intermediate_row;
+        double *d_intermediate_values;
+        int *h_intermediate;
+        double *d_value;
+
+        size_t size_matrix = matrix_csr.values_.size() ;
+        size_t size_multiplicand = multiplicand.matrix_csr.values_.size();
+        size_t size_res;// = (matrix_csr.values_.size() + subtrahend.matrix_csr.values_.size());
+
+        size_t size_rows = (rows_ + 1);
+        size_t size_mat_cols = cols_;
+        size_t size_cols = multiplicand.cols_;
+        size_t multiplicand_rows = multiplicand.rows_;
+        size_t size_matrix_col = matrix_csr.col_indices_.size() ;
+        size_t size_multiplicand_col = multiplicand.matrix_csr.col_indices_.size() ;
+        size_t size_res_col;// = (matrix_csr.col_indices_.size()+addend.matrix_csr.col_indices_.size());
+
+        h_intermediate = (int *)malloc(size_cols);
+
+        d_matrix_values       = sycl::malloc_shared<double>(size_matrix,defaultQueue);
+        d_multiplicand_values = sycl::malloc_shared<double>(size_multiplicand,defaultQueue);
+         
+        d_matrix_col          = sycl::malloc_shared<int>(size_matrix_col,defaultQueue);
+        d_multiplicand_col    = sycl::malloc_shared<int>(size_multiplicand_col,defaultQueue);
+       
+        d_matrix_row          = sycl::malloc_shared<int>(size_rows,defaultQueue);
+        d_multiplicand_row    = sycl::malloc_shared<int>(size_rows,defaultQueue);
+        d_row_count           = sycl::malloc_shared<int>(rows_,defaultQueue);
+        d_res_row             = sycl::malloc_shared<int>(size_rows,defaultQueue);
+        d_intermediate        = sycl::malloc_device<int>(size_cols,defaultQueue);
+        d_intermediate_col    = sycl::malloc_shared<int>((size_cols+1),defaultQueue);
+        d_intermediate_rowid  = sycl::malloc_shared<int>((size_multiplicand),defaultQueue);
+        d_intermediate_row    = sycl::malloc_shared<int>((size_multiplicand),defaultQueue);
+        d_intermediate_values = sycl::malloc_shared<double>((size_multiplicand),defaultQueue);
+        d_value               = sycl::malloc_shared<double>((rows_*size_cols),defaultQueue);
+
+        for (int i=0;i<size_matrix;i++)
+        {
+            d_matrix_values[i] = matrix_csr.values_.at(i);
+            d_matrix_col[i]    = matrix_csr.col_indices_.at(i);
+        }  
+       
+        for (int i=0;i<=rows_;i++)
+        {
+            d_matrix_row[i] = matrix_csr.row_ptrs_.at(i);
+        }
+
+        
+        for (int i=0;i<size_multiplicand;i++)
+        {
+            d_multiplicand_values[i] = multiplicand.matrix_csr.values_.at(i); 
+        }
+        for (int i=0;i<size_multiplicand_col;i++)
+        {
+            d_multiplicand_col[i] = multiplicand.matrix_csr.col_indices_.at(i);
+        }
+        for (int i=0;i<multiplicand_rows;i++)
+        {
+            d_multiplicand_row[i] = multiplicand.matrix_csr.row_ptrs_.at(i);
+        }
+        
+        // Initialize a vector to store the intermediate results
+       
+        std::vector<VTYPE> intermediate(multiplicand.cols_, 0.0);
+
+        res.matrix_csr.row_ptrs_[0] = 0;
+        d_res_values    = sycl::malloc_shared<double>(rows_,defaultQueue);
+        d_res_col       = sycl::malloc_shared<int>(rows_,defaultQueue);
+        auto cgd = [&](sycl::handler &hd) 
+        {
+            hd.parallel_for(sycl::range(rows_),[=](sycl::id<1> idx) 
+            {
+                d_intermediate[idx] = 0;
+                auto start = d_matrix_row[idx];
+                auto end = d_matrix_row[idx+1];
+                auto count = 0.;
+                for (int k=0;k<multiplicand_rows;k++)
+                { 
+                    
+                    auto multiplication_start = d_multiplicand_row[k];
+                    auto multiplication_end = d_multiplicand_row[k+1];
+                    auto i = start;
+                    //auto j= multiplication_start;
+                    while (i<end )
+                    {
+                        auto mat_index = d_matrix_col[i];
+                        auto mat_value = d_matrix_values[i];
+        
+                        for (int j=multiplication_start;j<multiplication_end;j++)
+                        {
+                            auto multi_index = d_multiplicand_col[j];
+                            auto multi_value = d_multiplicand_values[j];
+                            if ( mat_index == j)
+                            {
+                                count += mat_value*multi_value;
+                            }
+                        }
+                        i++;
+                    }
+                    if (std::abs(count) >= std::numeric_limits<VTYPE>::min() )
+                    {
+                        d_res_values[idx] = count;
+                        d_res_col[idx] = idx;
+                        d_intermediate[idx] += 1;
+                    }
+                }
+            });
+        };
+        defaultQueue.submit(cgd).wait();
+        
+        
+        auto cgf = [&](sycl::handler &hf) 
+        {
+            hf.parallel_for(sycl::range((size_rows)),[=](sycl::id<1> idx) 
+            {
+                d_res_row[idx] = 0;
+                auto count =0;
+                if (idx > 0)
+                {
+                    while (count < idx)
+                    {   
+                        d_res_row[idx] = d_res_row[idx]+d_intermediate[count];
+                        count++;
+                    }
+                }
+            });
+        };
+        defaultQueue.submit(cgf).wait();
+
+        size_res_col = d_res_row[rows_];
+        //h_res_values    = (double *)malloc(size_res_col* sizeof(double));
+        //h_res_col       = (int *)malloc(size_res_col*sizeof(int));
+
+        
+        /*
+        auto cg = [&](sycl::handler &h) 
+        {
+            h.parallel_for(sycl::range(rows_),[=](sycl::id<1> idx) 
+            {
+                d_intermediate[idx] = 0;
+                auto start = d_matrix_row[idx];
+                auto end = d_matrix_row[idx+1];
+                auto placeHold = d_res_row[idx];
+                auto count = 0;
+                for (int k=0;k<size_cols;k++)
+                { 
+                         auto product = 0.;
+                         auto multiplication_start = d_intermediate_col[k];
+                         auto multiplication_end = d_intermediate_col[k+1];
+                         auto i = start;
+                         //auto j= multiplication_start;
+                         while (i<end)
+                         {
+                            auto mat_index = d_matrix_col[i];
+                            auto mat_value = d_matrix_values[i];
+                            
+                            for (int j=multiplication_start;j<multiplication_end;j++)
+                            {
+                                auto multi_index = d_intermediate_row[j];
+                                auto multi_value = d_intermediate_values[j];
+                                if (multi_index == i)
+                                {
+                                    product += mat_value*multi_value;
+                                }
+                            }
+                            i++;
+                        }
+                        if (std::abs(product) >= std::numeric_limits<VTYPE>::min())  
+                        {   
+                            d_res_values[placeHold + count] = product;
+                            d_res_col[placeHold + count] = k;
+                            count++;
+                        }   
+                    }
+            });
+        };
+        defaultQueue.submit(cg).wait();
+        */
+        // Iterate over each row of the initial matrix
+        
+        for (ITYPE j = 0; j < rows_; ++j) 
+        {
+            res.matrix_csr.values_.emplace_back(d_res_values[j]);
+            res.matrix_csr.col_indices_.emplace_back(d_res_col[j]);
+        }
+        for (ITYPE j = 0; j < size_rows; ++j) 
+        {
+            res.matrix_csr.row_ptrs_[j] = d_res_row[j];
+        }
+       // res.matrix_csr.row_ptrs_[i+1]=res.matrix_csr.values_.size();
+        res.nnz_ = res.matrix_csr.values_.size();
+    }
+
+    else if (matrix_format_ == format::CSC) 
+    {
+
+        // Perform element-wise multiplication of the CSC vectors
+        res.matrix_csc.values_.reserve((matrix_csc.values_.size() <= multiplicand.matrix_csc.values_.size()) ? multiplicand.matrix_csc.values_.size() : matrix_csc.values_.size());
+        res.matrix_csc.row_indices_.reserve((matrix_csc.row_indices_.size() <= multiplicand.matrix_csc.row_indices_.size()) ? multiplicand.matrix_csc.row_indices_.size() : matrix_csc.row_indices_.size());
+        res.matrix_csc.col_ptrs_.resize(cols_+1);
+
+        // Initialize a vector to store the intermediate results
+        std::vector<VTYPE> intermediate(rows_, 0.0);
+
+        res.matrix_csc.col_ptrs_[0] = 0;
+
+        // Iterate over each column of the initial matrix
+        for (ITYPE j = 0; j < multiplicand.cols_; ++j) {
+            // Clear the intermediate results vector for each row
+            std::fill(intermediate.begin(), intermediate.end(), 0.0);
+
+            ITYPE multiplicand_start = multiplicand.matrix_csc.col_ptrs_[j];
+            ITYPE multiplicand_end = multiplicand.matrix_csc.col_ptrs_[j + 1];
+
+            // Iterate over the non-zero elements of the cloumn
+            for (ITYPE k = multiplicand_start; k < multiplicand_end; ++k) {
+                // Get the row index and value of the element
+                ITYPE multiplicand_row = multiplicand.matrix_csc.row_indices_[k];
+                VTYPE multiplicand_value = multiplicand.matrix_csc.values_[k];
+
+                ITYPE start = matrix_csc.col_ptrs_[multiplicand_row];
+                ITYPE end = matrix_csc.col_ptrs_[multiplicand_row + 1];
+
+                // Multiply the element with the corresponding column of the other matrix
+                for (ITYPE i = start; i < end; ++i) {
+                    ITYPE row = matrix_csc.row_indices_[i];
+                    VTYPE value = matrix_csc.values_[i];
+                    intermediate[row] += value * multiplicand_value;
+                }
+            }
+
+            // Add the intermediate results to the result vectors
+            for (ITYPE i = 0; i < multiplicand.rows_; ++i) {
+                VTYPE result_value = intermediate[i];
+                if (std::abs(result_value) >= std::numeric_limits<VTYPE>::min()) {
+                    res.matrix_csc.values_.emplace_back(result_value);
+                    res.matrix_csc.row_indices_.emplace_back(i);
+                }
+            }
+            res.matrix_csc.col_ptrs_[j+1]=res.matrix_csc.values_.size();
+        }
+
+        res.nnz_ = res.matrix_csc.values_.size();
+
+    } 
+    else
+    {
+        std::cerr << "MUI Error [matrix_arithmetic.h]: Unrecognised matrix format for matrix operator*()" << std::endl;
+        std::cerr << "    Please set the matrix_format_ as:" << std::endl;
+        std::cerr << "    format::COO: COOrdinate format" << std::endl;
+        std::cerr << "    format::CSR (default): Compressed Sparse Row format" << std::endl;
+        std::cerr << "    format::CSC: Compressed Sparse Column format" << std::endl;
+        std::abort();
+    }
+
+    return res;
+}
+
 // Member function of dot product
 template <typename ITYPE, typename VTYPE>
-VTYPE sparse_matrix<ITYPE,VTYPE>::dot_product(sparse_matrix<ITYPE,VTYPE> &exist_mat) const {
+VTYPE sparse_matrix<ITYPE,VTYPE>::dot_product(sparse_matrix<ITYPE,VTYPE> &exist_mat) const 
+{
     assert(((cols_ == 1)&&(exist_mat.cols_ == 1)) &&
         "MUI Error [matrix_arithmetic.h]: dot_product function only works for column vectors");
+
     sparse_matrix<ITYPE,VTYPE> tempThis(*this);
+    
     sparse_matrix<ITYPE,VTYPE> thisT(tempThis.transpose());
-    sparse_matrix<ITYPE,VTYPE> tempMat(thisT * exist_mat);
+    
+    sparse_matrix<ITYPE,VTYPE> tempMat(thisT ^ exist_mat);
     assert(((tempMat.get_rows() == 1)&&(tempMat.get_cols() == 1)) &&
                     "MUI Error [matrix_arithmetic.h]: result of dot_product function should be a scalar");
     return (tempMat.get_value(0,0));
 }
 
+
+template <typename ITYPE, typename VTYPE>
+VTYPE sparse_matrix<ITYPE,VTYPE>::sycl_dot_product(sycl::queue defaultQueue, sparse_matrix<ITYPE,VTYPE> &exist_mat)
+{
+    assert(((cols_ == 1)&&(exist_mat.cols_ == 1)) &&
+        "MUI Error [matrix_arithmetic.h]: dot_product function only works for column vectors");
+    VTYPE product;
+    
+    product = sycl_dotp_vec_vec(defaultQueue, this->matrix_sycl.vector_val,exist_mat.matrix_sycl.vector_val,exist_mat.get_rows());
+    
+    return (product);
+}
+
+template<typename ITYPE, typename VTYPE>
+VTYPE sparse_matrix<ITYPE,VTYPE>::sycl_dotp_vec_vec(sycl::queue defaultQueue, VTYPE *vec1_value, VTYPE *vec2_value,  ITYPE size_row) 
+{
+    size_t rows = size_row;
+    VTYPE *prod;
+    prod = (VTYPE *)malloc(1);
+    prod[0] = 0.;
+    VTYPE *dotp;
+    dotp = sycl::malloc_device<VTYPE>(1,defaultQueue);
+    defaultQueue.memcpy(dotp,prod,(sizeof(VTYPE))).wait();
+    auto chg = [&](sycl::handler &hc)
+    {
+        hc.parallel_for(sycl::range(rows),[=](sycl::id<1> idx) 
+        {
+            auto product = 0.;
+            product = vec1_value[idx] * vec2_value[idx];
+            auto v = sycl::atomic_ref<
+                         VTYPE, sycl::memory_order::relaxed,
+                         sycl::memory_scope::device,
+                         sycl::access::address_space::global_space>(*dotp);
+            v.fetch_add(product);
+        });
+    };
+    defaultQueue.submit(chg).wait();
+    
+    defaultQueue.memcpy(prod,dotp,(sizeof(VTYPE))).wait();
+    //std::cout<<" Dot product value : "<< prod[0] <<std::endl;
+    return (prod[0]);
+}
+
 // Member function of Hadamard product
 template <typename ITYPE, typename VTYPE>
-sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::hadamard_product(sparse_matrix<ITYPE,VTYPE> &exist_mat) {
+sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::hadamard_product(sparse_matrix<ITYPE,VTYPE> &exist_mat) 
+{
+    
     if (rows_ != exist_mat.rows_ || cols_ != exist_mat.cols_) {
         std::cerr << "MUI Error [matrix_arithmetic.h]: matrix size mismatch during matrix Hadamard product" << std::endl;
         std::abort();
     }
-
-    if (exist_mat.matrix_format_ != matrix_format_) {
+    
+    if (exist_mat.matrix_format_ != matrix_format_)
+    {
         exist_mat.format_conversion(this->get_format(), true, true, "overwrite");
-    } else {
+    } 
+    else 
+    {
         if (!exist_mat.is_sorted_unique("matrix_arithmetic.h", "hadamard_product()")){
             if (exist_mat.matrix_format_ == format::COO) {
                 exist_mat.sort_coo(true, true, "overwrite");
@@ -836,7 +2084,9 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::hadamard_product(sparse_m
         // Sort and deduplicate the result
         res.sort_coo(true, true, "multiply");
 
-    } else if (matrix_format_ == format::CSR) {
+    } 
+    else if (matrix_format_ == format::CSR) 
+    {
 
         // Perform element-wise hadamard product of the CSR vectors
         res.matrix_csr.values_.reserve(matrix_csr.values_.size() + exist_mat.matrix_csr.values_.size());
@@ -845,44 +2095,218 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::hadamard_product(sparse_m
 
         res.matrix_csr.row_ptrs_[0] = 0;
 
-        ITYPE row = 0;
-        while (row < rows_) {
-            ITYPE start = matrix_csr.row_ptrs_[row];
-            ITYPE end = matrix_csr.row_ptrs_[row + 1];
+        auto defaultQueue = sycl::queue {sycl::gpu_selector_v};
+            
+        double *h_matrix_values;
+        double *h_exist_values;
+        double *h_res_values;
 
-            ITYPE exist_mat_start = exist_mat.matrix_csr.row_ptrs_[row];
-            ITYPE exist_mat_end = exist_mat.matrix_csr.row_ptrs_[row + 1];
+        double *d_matrix_values;
+        double *d_exist_values;
+        double *d_res_values;
 
-            // Merge the values and column indices of the two rows
-            ITYPE i = start;
-            ITYPE j = exist_mat_start;
-            while (i < end && j < exist_mat_end) {
-                ITYPE col = matrix_csr.col_indices_[i];
-                ITYPE exist_mat_col = exist_mat.matrix_csr.col_indices_[j];
+        int *h_matrix_col;
+        int *h_exist_col;
+        int *h_res_col;
 
-                if (col == exist_mat_col) {
-                    // Add the corresponding values if the columns match
-                    if (std::abs(matrix_csr.values_[i] * exist_mat.matrix_csr.values_[j]) >= std::numeric_limits<VTYPE>::min()) {
-                        res.matrix_csr.values_.emplace_back(matrix_csr.values_[i] * exist_mat.matrix_csr.values_[j]);
-                        res.matrix_csr.col_indices_.emplace_back(col);
-                    }
-                    i++;
-                    j++;
-                } else if (col < exist_mat_col) {
-                    i++;
-                } else {
-                    j++;
-                }
-            }
+        int *d_matrix_col;
+        int *d_exist_col;
+        int *d_res_col;
+   
+        int *h_matrix_row;
+        int *h_exist_row;
+        int *h_res_row;
+        int *h_row_count;
+        int *d_matrix_row;
+        int *d_exist_row;
+        int *d_res_row;
+        int *d_row_count;
+        
+        size_t size_matrix = matrix_csr.values_.size() ;
+        size_t size_exist = exist_mat.matrix_csr.values_.size();
+        size_t size_res;// = (matrix_csr.values_.size() + addend.matrix_csr.values_.size());
 
-            // Update the row pointer
-            res.nnz_ = res.matrix_csr.col_indices_.size();
-            res.matrix_csr.row_ptrs_[row + 1] = res.nnz_;
+        size_t size_rows = (rows_ + 1);
 
-            row++;
+        size_t size_matrix_col = matrix_csr.col_indices_.size() ;
+        size_t size_exist_col = exist_mat.matrix_csr.col_indices_.size() ;
+        size_t size_res_col;// = (matrix_csr.col_indices_.size()+addend.matrix_csr.col_indices_.size());
+
+        h_matrix_values = (double *)malloc(size_matrix*sizeof(double));
+        h_exist_values  = (double *)malloc(size_exist*sizeof(double));
+       
+        h_matrix_col    = (int *)malloc(size_matrix_col*sizeof(int));
+        h_exist_col     = (int *)malloc(size_exist_col*sizeof(int));
+        
+        h_matrix_row    = (int *)malloc(size_rows*sizeof(int));
+        h_exist_row    = (int *)malloc(size_rows*sizeof(int));
+        h_res_row       = (int *)malloc(size_rows*sizeof(int));
+        
+        h_row_count     = (int *)malloc(rows_*sizeof(int));
+
+        d_matrix_values = sycl::malloc_device<double>(size_matrix,defaultQueue);
+        d_exist_values  = sycl::malloc_device<double>(size_exist,defaultQueue);
+         
+        d_matrix_col    = sycl::malloc_device<int>(size_matrix_col,defaultQueue);
+        d_exist_col     = sycl::malloc_device<int>(size_exist_col,defaultQueue);
+       
+        d_matrix_row    = sycl::malloc_device<int>(size_rows,defaultQueue);
+        d_exist_row     = sycl::malloc_device<int>(size_rows,defaultQueue);
+        d_res_row       = sycl::malloc_device<int>(size_rows,defaultQueue);
+        d_row_count     = sycl::malloc_device<int>(rows_,defaultQueue);
+
+        for (int i=0;i<size_matrix;i++)
+        {
+            h_matrix_values[i] = matrix_csr.values_.at(i);
+            h_matrix_col[i]    = matrix_csr.col_indices_.at(i);
+        }
+        for (int i=0;i<size_exist;i++)
+        {
+            h_exist_values[i] = exist_mat.matrix_csr.values_.at(i);
+            h_exist_col[i]    = exist_mat.matrix_csr.col_indices_.at(i);
         }
 
-    } else if (matrix_format_ == format::CSC) {
+        for (int i=0;i<=rows_;i++)
+        {
+            h_matrix_row[i] = matrix_csr.row_ptrs_.at(i);
+            h_exist_row[i]  = exist_mat.matrix_csr.row_ptrs_.at(i);   
+        }
+
+        //auto defaultQueue = sycl::queue{sycl::default_selector_v};
+        defaultQueue.memcpy(d_matrix_values,h_matrix_values,(size_matrix*sizeof(double))).wait();
+        defaultQueue.memcpy(d_exist_values,h_exist_values,(size_exist*sizeof(double))).wait();
+        defaultQueue.memcpy(d_matrix_col,h_matrix_col,(size_matrix*sizeof(int))).wait();
+        defaultQueue.memcpy(d_exist_col,h_exist_col,(size_exist*sizeof(int))).wait();
+        defaultQueue.memcpy(d_matrix_row,h_matrix_row,((rows_+1)*sizeof(int))).wait();
+        defaultQueue.memcpy(d_exist_row,h_exist_row,((rows_+1)*sizeof(int))).wait();
+
+        
+
+        auto cg = [&](sycl::handler &h) 
+        {
+            
+            h.parallel_for(sycl::range(rows_),[=](sycl::id<1> idx) 
+            {
+                auto startIdx = d_matrix_row[idx];
+                auto endIdx = d_matrix_row[idx+1];
+                auto startaddIdx = d_exist_row[idx];
+                auto endaddIdx = d_exist_row[idx+1];
+                auto i = startIdx;
+                auto j = startaddIdx;
+                auto count = 0;
+                auto col = 0;
+                auto addend_col = 0;
+                i = startIdx;
+                while (i < endIdx && j < endaddIdx) 
+                {
+                    col = d_matrix_col[i];
+                    addend_col = d_exist_col[j];
+                    if (col == addend_col)
+                    {
+                        i++;
+                        j++;
+                        count++;
+                    }
+                    else if(col < addend_col)
+                    {
+                        i++;
+                    }
+                    else
+                    {
+                        j++;
+                    }
+                }
+                d_row_count[idx] = count;
+            });
+        };        
+        defaultQueue.submit(cg).wait(); 
+
+        auto chg = [&](sycl::handler &gh) 
+        {
+            gh.parallel_for(sycl::range(size_rows),[=](sycl::id<1> idx) 
+            {
+                d_res_row[idx] = 0;
+                auto count =0;
+                if (idx > 0)
+                {
+                    while (count < idx)
+                    {   
+                        d_res_row[idx] = d_res_row[idx]+d_row_count[count];
+                        count++;
+                    }
+                } 
+            });
+        };        
+        defaultQueue.submit(chg).wait(); 
+        defaultQueue.memcpy(h_res_row,d_res_row,(size_rows*sizeof(int))).wait();
+        size_res_col = h_res_row[rows_];
+
+        h_res_values    = (double *)malloc(size_res_col* sizeof(double));
+        h_res_col       = (int *)malloc(size_res_col*sizeof(int));
+
+        d_res_values    = sycl::malloc_device<double>(size_res_col,defaultQueue);
+        d_res_col       = sycl::malloc_device<int>(size_res_col,defaultQueue);
+        
+        auto cag = [&](sycl::handler &ga)
+        {
+            ga.parallel_for(sycl::range(rows_),[=](sycl::id<1>idx)
+            {
+                auto startIdx = d_matrix_row[idx];
+                auto endIdx = d_matrix_row[idx+1];
+                auto startaddIdx = d_exist_row[idx];
+                auto endaddIdx = d_exist_row[idx+1];
+                auto i = startIdx;
+                auto j = startaddIdx;
+                auto count = 0;
+                auto col = 0;
+                auto subtrahend_col = 0;
+                auto placeHold = d_res_row[idx];
+                while (i < endIdx && j < endaddIdx) 
+                {
+                    col        = d_matrix_col[i];
+                    subtrahend_col = d_exist_col[j];
+                    if (col == subtrahend_col)
+                    {
+                        d_res_values[placeHold + count] = d_matrix_values[i] * d_exist_values[j];
+                        d_res_col[placeHold + count] = col;
+                        i++;
+                        j++;
+                        count++;
+                    }
+                    else if (col < subtrahend_col)
+                    {
+                        i++;
+                    }
+                    else
+                    {
+                        j++;
+                    }
+                }
+            });
+        };
+        defaultQueue.submit(cag).wait(); 
+
+        defaultQueue.memcpy(h_res_values,d_res_values,(size_res_col*sizeof(double))).wait();
+        defaultQueue.memcpy(h_res_col,d_res_col,(size_res_col*sizeof(int))).wait();
+        
+       
+       // defaultQueue.memcpy(h_res_values,d_res_values,(size_res*sizeof(double))).wait();             
+       // res.matrix_csr.values_.resize(size_res);
+       // res.matrix_csr.values_.resize(size_res);
+        for (int i=0;i<size_res_col;i++)
+        {
+            res.matrix_csr.values_.emplace_back(h_res_values[i]);
+            res.matrix_csr.col_indices_.emplace_back(h_res_col[i]);
+        }
+        for (int i=0;i<=rows_;i++)
+        {
+            res.matrix_csr.row_ptrs_[i] = (h_res_row[i]);
+        }
+        res.nnz_ = res.matrix_csr.col_indices_.size();
+        res.matrix_csr.row_ptrs_[rows_ + 1] = res.nnz_;
+    } 
+    else if (matrix_format_ == format::CSC) 
+    {
 
         // Perform element-wise hadamard product of the CSC vectors
         res.matrix_csc.values_.reserve(matrix_csc.values_.size() + exist_mat.matrix_csc.values_.size());
@@ -902,7 +2326,8 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::hadamard_product(sparse_m
             // Merge the values and row indices of the two columns
             ITYPE i = start;
             ITYPE j = exist_mat_start;
-            while (i < end && j < exist_mat_end) {
+            while (i < end && j < exist_mat_end) 
+            {
                 ITYPE row = matrix_csc.row_indices_[i];
                 ITYPE exist_mat_row = exist_mat.matrix_csc.row_indices_[j];
 
@@ -940,11 +2365,13 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::hadamard_product(sparse_m
 
 // Member function to get transpose of matrix
 template <typename ITYPE, typename VTYPE>
-sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::transpose(bool performSortAndUniqueCheck) const {
+sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::transpose(bool performSortAndUniqueCheck) const 
+{
 
     sparse_matrix<ITYPE,VTYPE> res(*this);
 
-    if (matrix_format_ == format::COO) {
+    if (matrix_format_ == format::COO) 
+    {
 
         if (performSortAndUniqueCheck){
             if (!res.is_sorted_unique("matrix_arithmetic.h", "transpose()")){
@@ -954,19 +2381,25 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::transpose(bool performSor
 
         res.index_reinterpretation();
 
-    } else if (matrix_format_ == format::CSR) {
+    } 
+    else if (matrix_format_ == format::CSR) 
+    {
 
         res.format_conversion("CSC", performSortAndUniqueCheck, performSortAndUniqueCheck, "overwrite");
 
         res.format_reinterpretation();
 
-    } else if (matrix_format_ == format::CSC) {
+    } 
+    else if (matrix_format_ == format::CSC) 
+    {
 
         res.format_conversion("CSR", performSortAndUniqueCheck, performSortAndUniqueCheck, "overwrite");
 
         res.format_reinterpretation();
 
-    } else {
+    } 
+    else 
+    {
         std::cerr << "MUI Error [matrix_arithmetic.h]: Unrecognised matrix format for matrix transpose()" << std::endl;
         std::cerr << "    Please set the matrix_format_ as:" << std::endl;
         std::cerr << "    format::COO: COOrdinate format" << std::endl;
@@ -1070,7 +2503,8 @@ void sparse_matrix<ITYPE,VTYPE>::qr_decomposition(sparse_matrix<ITYPE,VTYPE> &Q,
     std::vector<VTYPE> r_diag (cols_);
 
     // Calculate the diagonal element values
-    for (ITYPE c = 0; c <cols_; ++c)  {
+    for (ITYPE c = 0; c <cols_; ++c)  
+    {
         VTYPE  nrm (0.0);
 
        // Compute 2-norm of k-th column without under/overflow.
@@ -1104,7 +2538,8 @@ void sparse_matrix<ITYPE,VTYPE>::qr_decomposition(sparse_matrix<ITYPE,VTYPE> &Q,
     }
 
     // Calculate the orthogonal matrix
-    for (ITYPE c = cols_ - 1; c >= 0; --c)  {
+    for (ITYPE c = cols_ - 1; c >= 0; --c)  
+    {
         Q.set_value(c, c, static_cast<VTYPE>(1.0));
 
         for (ITYPE cc = c; cc < cols_; ++cc)
@@ -1147,10 +2582,12 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::inverse() const {
 
         // Partial pivoting for Gaussian elimination
         ITYPE ppivot;
-        for (ITYPE rb = r; rb < rows_; ++rb)  {
+        for (ITYPE rb = r; rb < rows_; ++rb)  
+        {
             const VTYPE tmp = std::abs(mat_copy.get_value(rb, r));
 
-            if ((tmp > max_value) && (std::abs(tmp) >= std::numeric_limits<VTYPE>::min()))  {
+            if ((tmp > max_value) && (std::abs(tmp) >= std::numeric_limits<VTYPE>::min()))  
+            {
                 max_value = tmp;
                 max_row = rb;
             }
@@ -1212,11 +2649,13 @@ void sparse_matrix<ITYPE,VTYPE>::index_reinterpretation() {
 
 // Protected member function to reinterpret the format of sparse matrix between CSR format and CSC format - helper function on matrix transpose
 template<typename ITYPE, typename VTYPE>
-void sparse_matrix<ITYPE,VTYPE>::format_reinterpretation() {
+void sparse_matrix<ITYPE,VTYPE>::format_reinterpretation() 
+{
     assert(((matrix_format_ == format::CSR) || (matrix_format_ == format::CSC)) &&
               "MUI Error [matrix_arithmetic.h]: format_reinterpretation() is for CSR or CSC format.");
 
-    if (matrix_format_ == format::CSR) {
+    if (matrix_format_ == format::CSR) 
+    {
 
         matrix_csc.col_ptrs_.swap(matrix_csr.row_ptrs_);
         matrix_csc.row_indices_.swap(matrix_csr.col_indices_);
@@ -1232,7 +2671,9 @@ void sparse_matrix<ITYPE,VTYPE>::format_reinterpretation() {
         matrix_csr.col_indices_.clear();
         matrix_csr.values_.clear();
 
-    } else if (matrix_format_ == format::CSC) {
+    } 
+    else if (matrix_format_ == format::CSC) 
+    {
 
         matrix_csr.row_ptrs_.swap(matrix_csc.col_ptrs_);
         matrix_csr.col_indices_.swap(matrix_csc.row_indices_);
