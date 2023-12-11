@@ -46,7 +46,8 @@
 
 #ifndef MUI_MATRIX_CTOR_DTOR_H_
 #define MUI_MATRIX_CTOR_DTOR_H_
-
+#include <limits>
+#include <CL/sycl.hpp>
 namespace mui {
 namespace linalg {
 
@@ -65,45 +66,116 @@ sparse_matrix<ITYPE,VTYPE>::sparse_matrix(ITYPE r, ITYPE c, const std::string &f
     if (!value_vector.empty()) {
 
         nnz_ = value_vector.size();
+        /*
+        auto Selector = [](sycl::device const &dev) 
+        {
+            if (dev.get_platform().get_backend() == sycl::backend::ext_oneapi_cuda) 
+            {
+            //    std::cout << " CUDA device found " << std::endl;
+                return 1;
+            }
+           else 
+            {
+                return -1;
+            }
+        };
+        */
+        auto defaultQueue = sycl::queue {sycl::gpu_selector_v};
 
-        if (matrix_format_ == format::COO) {
+        if (matrix_format_ == format::COO) 
+        {
 
             matrix_coo.values_.reserve(value_vector.size());
             matrix_coo.row_indices_.reserve(row_vector.size());
             matrix_coo.col_indices_.reserve(column_vector.size());
 
+            matrix_sycl.values      = sycl::malloc_shared<VTYPE>(value_vector.size(),defaultQueue);
+            matrix_sycl.row         = sycl::malloc_shared<ITYPE>(row_vector.size(),defaultQueue);
+            matrix_sycl.column      = sycl::malloc_shared<ITYPE>(column_vector.size(),defaultQueue);
+
             matrix_coo.values_ = std::vector<VTYPE>(value_vector.begin(), value_vector.end());
             matrix_coo.row_indices_ = std::vector<ITYPE>(row_vector.begin(), row_vector.end());
             matrix_coo.col_indices_ = std::vector<ITYPE>(column_vector.begin(), column_vector.end());
 
-        } else if (matrix_format_ == format::CSR) {
+            for (int i=0;i<value_vector.size();i++)
+            {
+                matrix_sycl.values[i] = value_vector[i];
+            }
+            for (int i=0;i<row_vector.size();i++)
+            {
+                matrix_sycl.row[i] = row_vector[i];
+            }
+            for (int i=0;i<column_vector.size();i++)
+            {
+                matrix_sycl.column[i] = column_vector[i];
+            }
+
+        } 
+        else if (matrix_format_ == format::CSR) 
+        {
 
             matrix_csr.values_.reserve(value_vector.size());
             matrix_csr.row_ptrs_.reserve(row_vector.size());
             matrix_csr.col_indices_.reserve(column_vector.size());
 
-            matrix_csr.values_ = std::vector<VTYPE>(value_vector.begin(), value_vector.end());
-            matrix_csr.row_ptrs_ = std::vector<ITYPE>(row_vector.begin(), row_vector.end());
+            matrix_sycl.values      = sycl::malloc_shared<VTYPE>(value_vector.size(),defaultQueue);
+            matrix_sycl.row         = sycl::malloc_shared<ITYPE>(row_vector.size(),defaultQueue);
+            matrix_sycl.column      = sycl::malloc_shared<ITYPE>(column_vector.size(),defaultQueue);
+
+            matrix_csr.values_      = std::vector<VTYPE>(value_vector.begin(), value_vector.end());
+            matrix_csr.row_ptrs_    = std::vector<ITYPE>(row_vector.begin(), row_vector.end());
             matrix_csr.col_indices_ = std::vector<ITYPE>(column_vector.begin(), column_vector.end());
 
-        } else if (matrix_format_ == format::CSC) {
+            for (int i=0;i<value_vector.size();i++)
+            {
+                matrix_sycl.values[i] = value_vector[i];
+            }
+            for (int i=0;i<row_vector.size();i++)
+            {
+                matrix_sycl.row[i] = row_vector[i];
+            }
+            for (int i=0;i<column_vector.size();i++)
+            {
+                matrix_sycl.column[i] = column_vector[i];
+            }
+        } 
+        else if (matrix_format_ == format::CSC) 
+        {
 
             matrix_csc.values_.reserve(value_vector.size());
             matrix_csc.row_indices_.reserve(row_vector.size());
             matrix_csc.col_ptrs_.reserve(column_vector.size());
 
+            matrix_sycl.values      = sycl::malloc_shared<VTYPE>(value_vector.size(),defaultQueue);
+            matrix_sycl.row         = sycl::malloc_shared<ITYPE>(row_vector.size(),defaultQueue);
+            matrix_sycl.column      = sycl::malloc_shared<ITYPE>(column_vector.size(),defaultQueue);
+
             matrix_csc.values_ = std::vector<VTYPE>(value_vector.begin(), value_vector.end());
             matrix_csc.row_indices_ = std::vector<ITYPE>(row_vector.begin(), row_vector.end());
             matrix_csc.col_ptrs_ = std::vector<ITYPE>(column_vector.begin(), column_vector.end());
 
-        } else {
-              std::cerr << "MUI Error [matrix_ctor_dtor.h]: Unrecognised matrix format for matrix constructor" << std::endl;
-              std::cerr << "    Please set the matrix_format_ as:" << std::endl;
-              std::cerr << "    format::COO: COOrdinate format" << std::endl;
-              std::cerr << "    format::CSR (default): Compressed Sparse Row format" << std::endl;
-              std::cerr << "    format::CSC: Compressed Sparse Column format" << std::endl;
+            for (int i=0;i<value_vector.size();i++)
+            {
+                matrix_sycl.values[i] = value_vector[i];
+            }
+            for (int i=0;i<row_vector.size();i++)
+            {
+                matrix_sycl.row[i] = row_vector[i];
+            }
+            for (int i=0;i<column_vector.size();i++)
+            {
+                matrix_sycl.column[i] = column_vector[i];
+            }
+        } 
+        else 
+        {
+              std::cerr << "MUI Error [matrix_ctor_dtor.h]: Unrecognised matrix format for matrix constructor " << std::endl;
+              std::cerr << " Please set the matrix_format_ as: " << std::endl;
+              std::cerr << " format::COO: COOrdinate format " << std::endl;
+              std::cerr << " format::CSR (default): Compressed Sparse Row format " << std::endl;
+              std::cerr << " format::CSC: Compressed Sparse Column format " << std::endl;
               std::abort();
-          }
+        }
 
         this->assert_valid_vector_size("matrix_ctor_dtor.h", "sparse_matrix constructor function");
     } else {
@@ -139,21 +211,77 @@ sparse_matrix<ITYPE,VTYPE>::sparse_matrix(const sparse_matrix<ITYPE,VTYPE> &exis
       cols_(exist_mat.cols_),
       nnz_(exist_mat.nnz_),
       matrix_format_(exist_mat.matrix_format_) {
-
+        /*
+         auto Selector = [](sycl::device const &dev) 
+        {
+            if (dev.get_platform().get_backend() == sycl::backend::ext_oneapi_cuda) 
+            {
+            //    std::cout << " CUDA device found " << std::endl;
+                return 1;
+            }
+           else 
+            {
+                return -1;
+            }
+        };
+        */
+        auto defaultQueue = sycl::queue {sycl::gpu_selector_v};
       // Copy the data from the existing matrix
-      if (matrix_format_ == format::COO) {
+      if (matrix_format_ == format::COO) 
+      {
           matrix_coo.values_ = std::move(exist_mat.matrix_coo.values_);
           matrix_coo.row_indices_ = std::move(exist_mat.matrix_coo.row_indices_);
           matrix_coo.col_indices_ = std::move(exist_mat.matrix_coo.col_indices_);
-      } else if (matrix_format_ == format::CSR) {
+          size_t mat_size = exist_mat.matrix_coo.values_.size();
+          matrix_sycl.values = sycl::malloc_shared<VTYPE>(mat_size, defaultQueue);
+          matrix_sycl.row = sycl::malloc_shared<ITYPE>(mat_size, defaultQueue);
+          matrix_sycl.column = sycl::malloc_shared<ITYPE>(mat_size, defaultQueue);
+          copy_sycl_data(defaultQueue,matrix_sycl.values,exist_mat.matrix_sycl.values,mat_size);
+          copy_sycl_data(defaultQueue,matrix_sycl.row,exist_mat.matrix_sycl.row,mat_size);
+          copy_sycl_data(defaultQueue,matrix_sycl.column,exist_mat.matrix_sycl.column,mat_size);
+      } 
+      else if (matrix_format_ == format::CSR) 
+      {
           matrix_csr.values_ = std::move(exist_mat.matrix_csr.values_);
           matrix_csr.row_ptrs_ = std::move(exist_mat.matrix_csr.row_ptrs_);
           matrix_csr.col_indices_ = std::move(exist_mat.matrix_csr.col_indices_);
-      } else if (matrix_format_ == format::CSC) {
+          size_t mat_size = exist_mat.matrix_csr.values_.size();
+          size_t mat_row_size = exist_mat.matrix_csr.row_ptrs_.size();
+          size_t mat_col_size = exist_mat.matrix_csr.col_indices_.size();
+          matrix_sycl.values = sycl::malloc_shared<VTYPE>(mat_size, defaultQueue);
+          matrix_sycl.row = sycl::malloc_shared<ITYPE>(mat_row_size, defaultQueue);
+          matrix_sycl.column = sycl::malloc_shared<ITYPE>(mat_col_size, defaultQueue);
+          if (exist_mat.get_cols() == 1)
+          { 
+             matrix_sycl.vector_val = sycl::malloc_shared<VTYPE>(exist_mat.rows_, defaultQueue);
+          }
+          copy_sycl_data(defaultQueue,matrix_sycl.values,exist_mat.matrix_sycl.values,mat_size);
+          copy_sycl_data(defaultQueue,matrix_sycl.row,exist_mat.matrix_sycl.row,mat_row_size);
+          copy_sycl_data(defaultQueue,matrix_sycl.column,exist_mat.matrix_sycl.column,mat_col_size);
+          if (exist_mat.get_cols() == 1)
+          {
+            copy_sycl_data(defaultQueue,matrix_sycl.vector_val,exist_mat.matrix_sycl.vector_val,exist_mat.rows_);
+          }
+      } 
+      else if (matrix_format_ == format::CSC) 
+      {
           matrix_csc.values_ = std::move(exist_mat.matrix_csc.values_);
           matrix_csc.row_indices_ = std::move(exist_mat.matrix_csc.row_indices_);
           matrix_csc.col_ptrs_ = std::move(exist_mat.matrix_csc.col_ptrs_);
-      } else {
+          size_t mat_size = exist_mat.matrix_csr.values_.size();
+          size_t mat_row_size = exist_mat.matrix_csc.row_indices_.size();
+          size_t mat_col_size = exist_mat.matrix_csc.col_ptrs_.size();
+          matrix_sycl.values = sycl::malloc_shared<VTYPE>(mat_size, defaultQueue);
+          matrix_sycl.row = sycl::malloc_shared<ITYPE>(mat_row_size, defaultQueue);
+          matrix_sycl.column = sycl::malloc_shared<ITYPE>(mat_col_size, defaultQueue);
+          matrix_sycl.vector_val = sycl::malloc_shared<VTYPE>(exist_mat.cols_, defaultQueue);
+          copy_sycl_data(defaultQueue,matrix_sycl.values,exist_mat.matrix_sycl.values,mat_size);
+          copy_sycl_data(defaultQueue,matrix_sycl.row,exist_mat.matrix_sycl.row,mat_row_size);
+          copy_sycl_data(defaultQueue,matrix_sycl.column,exist_mat.matrix_sycl.column,mat_col_size);
+          copy_sycl_data(defaultQueue,matrix_sycl.vector_val,exist_mat.matrix_sycl.vector_val,exist_mat.cols_);
+      } 
+      else 
+      {
           std::cerr << "MUI Error [matrix_ctor_dtor.h]: Unrecognised matrix format for matrix constructor" << std::endl;
           std::cerr << "    Please set the matrix_format_ as:" << std::endl;
           std::cerr << "    format::COO: COOrdinate format" << std::endl;
@@ -250,19 +378,23 @@ sparse_matrix<ITYPE,VTYPE>::sparse_matrix(ITYPE n, const std::string &token, con
         nnz_ = n;
 
         // identity square matrix
-        if (matrix_format_ == format::COO) {
+        if (matrix_format_ == format::COO) 
+        {
 
             matrix_coo.values_.reserve(n);
             matrix_coo.row_indices_.reserve(n);
             matrix_coo.col_indices_.reserve(n);
 
-            for (ITYPE i = 0; i < n; ++i) {
+            for (ITYPE i = 0; i < n; ++i) 
+            {
                 matrix_coo.values_.emplace_back(1.0);
                 matrix_coo.row_indices_.emplace_back(i);
                 matrix_coo.col_indices_.emplace_back(i);
             }
 
-        } else if (matrix_format_ == format::CSR) {
+        } 
+        else if (matrix_format_ == format::CSR) 
+        {
 
             matrix_csr.values_.reserve(n);
             matrix_csr.row_ptrs_.reserve(n+1);
@@ -276,7 +408,9 @@ sparse_matrix<ITYPE,VTYPE>::sparse_matrix(ITYPE n, const std::string &token, con
 
             matrix_csr.row_ptrs_.emplace_back(n);
 
-        } else if (matrix_format_ == format::CSC) {
+        } 
+        else if (matrix_format_ == format::CSC)
+        {
 
             matrix_csc.values_.reserve(n);
             matrix_csc.row_indices_.reserve(n);
@@ -290,7 +424,9 @@ sparse_matrix<ITYPE,VTYPE>::sparse_matrix(ITYPE n, const std::string &token, con
 
             matrix_csc.col_ptrs_.emplace_back(n);
 
-        } else {
+        } 
+        else 
+        {
             std::cerr << "MUI Error [matrix_ctor_dtor.h]: Unrecognised matrix format for matrix constructor" << std::endl;
             std::cerr << "    Please set the matrix_format_ as:" << std::endl;
             std::cerr << "    format::COO: COOrdinate format" << std::endl;
@@ -299,7 +435,9 @@ sparse_matrix<ITYPE,VTYPE>::sparse_matrix(ITYPE n, const std::string &token, con
             std::abort();
         }
 
-    } else {
+    } 
+    else 
+    {
         std::cerr << "MUI Error [matrix_ctor_dtor.h]: unidentified token string for square matrix constructor" << std::endl;
         std::cerr << "    Please set the token string as:" << std::endl;
         std::cerr << "    empty string (default): Empty (all-zero) square matrix" << std::endl;
@@ -344,13 +482,19 @@ void sparse_matrix<ITYPE,VTYPE>::set_matrix_format(const std::string &format) {
 
     std::string matrix_format = string_to_upper(trim(format));
 
-    if (matrix_format == "COO") {
+    if (matrix_format == "COO")
+    {
         matrix_format_ = format::COO;
-    } else if (matrix_format == "CSR") {
+    } 
+    else if (matrix_format == "CSR") 
+    {
         matrix_format_ = format::CSR;
-    } else if (matrix_format == "CSC") {
+    } 
+    else if (matrix_format == "CSC") 
+    {
         matrix_format_ = format::CSC;
-    } else {
+    } 
+    else {
         std::cerr << "MUI Error [matrix_ctor_dtor.h]: Unrecognised format type: " << format << " for matrix constructor" << std::endl;
         std::cerr << "    Please set the format string as:" << std::endl;
         std::cerr << "    'COO': COOrdinate format" << std::endl;
