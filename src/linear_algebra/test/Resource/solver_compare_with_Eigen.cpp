@@ -46,7 +46,7 @@
 
 #include <iostream>
 #include <fstream>
-#include <Eigen/Sparse>
+//#include <Eigen/Sparse>
 #include <ctime>
 #include "../../solver.h"
 
@@ -120,7 +120,7 @@ inline double test00 () {
 }
 
 inline double test01 () {
-
+    /*
     std::cout << std::endl;
     std::cout << "============================================================" << std::endl;
     std::cout << "==== TEST 01: Find Matrix H_i by Matrix Css and Aas ========" << std::endl;
@@ -227,7 +227,7 @@ inline double test01 () {
     std::cout << std::endl;
 
     return eigen_time;
-
+    */
 }
 
 int main(int argc, char** argv) {
