@@ -79,10 +79,13 @@ class conjugate_gradient_1d : public solver<ITYPE,VTYPE> {
         conjugate_gradient_1d(sparse_matrix<ITYPE,VTYPE>, sparse_matrix<ITYPE,VTYPE>, VTYPE = 1e-6, ITYPE = 0, preconditioner<ITYPE,VTYPE>* = nullptr);
         // Destructor
         ~conjugate_gradient_1d();
+        // Member function for solve on sycl
+        std::pair<ITYPE, VTYPE> sycl_solve(sycl::queue, sparse_matrix<ITYPE,VTYPE> = sparse_matrix<ITYPE,VTYPE>());
         // Member function for solve
         std::pair<ITYPE, VTYPE> solve(sparse_matrix<ITYPE,VTYPE> = sparse_matrix<ITYPE,VTYPE>());
         // Member function to get the solution
         sparse_matrix<ITYPE,VTYPE> getSolution();
+        void copy_vecSolution(sycl::queue , sparse_matrix<ITYPE,VTYPE> &);
 
     private:
         // The coefficient matrix of the matrix equation
@@ -97,6 +100,11 @@ class conjugate_gradient_1d : public solver<ITYPE,VTYPE> {
         sparse_matrix<ITYPE,VTYPE> z_;
         // The direction matrix of the CG solver
         sparse_matrix<ITYPE,VTYPE> p_;
+        sparse_matrix<ITYPE,VTYPE> Ax0;
+
+        sparse_matrix<ITYPE,VTYPE> tempZ;
+
+        sparse_matrix<ITYPE,VTYPE> Ap;
         // Tolerance of CG solver
         VTYPE cg_solve_tol_;
         // Maximum iteration of CG solver
@@ -117,6 +125,8 @@ class conjugate_gradient : public solver<ITYPE,VTYPE> {
         ~conjugate_gradient();
         // Member function for solve
         std::pair<ITYPE, VTYPE> solve(sparse_matrix<ITYPE,VTYPE> = sparse_matrix<ITYPE,VTYPE>());
+        // Member function for solve using sycl
+        std::pair<ITYPE, VTYPE> sycl_solve(sparse_matrix<ITYPE,VTYPE> = sparse_matrix<ITYPE,VTYPE>());
         // Member function to get the solution
         sparse_matrix<ITYPE,VTYPE> getSolution();
 
@@ -129,6 +139,7 @@ class conjugate_gradient : public solver<ITYPE,VTYPE> {
         sparse_matrix<ITYPE,VTYPE> b_column_;
         // The column segments of the initial guess of the variable matrix of the matrix equation
         sparse_matrix<ITYPE,VTYPE> x_init_column_;
+        sparse_matrix<ITYPE,VTYPE> x_column;
         // The variable matrix of the matrix equation
         sparse_matrix<ITYPE,VTYPE> x_;
         // Tolerance of CG solver
