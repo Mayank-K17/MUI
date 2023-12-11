@@ -49,6 +49,8 @@
 
 #include <cassert>
 #include <numeric>
+#include <CL/sycl.hpp>
+#include "matrix.h"
 
 namespace mui {
 namespace linalg {
@@ -74,6 +76,158 @@ void sparse_matrix<ITYPE,VTYPE>::resize(ITYPE r, ITYPE c) {
     }
 }
 
+template<typename ITYPE, typename VTYPE>
+void sparse_matrix<ITYPE,VTYPE>::sycl_resize(ITYPE r, ITYPE c) {
+    assert(((this->non_zero_elements_count()) == 0) &&
+            "MUI Error [matrix_manipulation.h]: resize function only works for all-zero matrix");
+    rows_ = r;
+    cols_ = c;
+    auto Selector = [](sycl::device const &dev) 
+    {
+        if (dev.get_platform().get_backend() == sycl::backend::ext_oneapi_cuda) 
+        {
+         //   std::cout << " CUDA device found in resize" << std::endl;
+            return 1;
+        }
+        else 
+        {
+            return -1;
+        }
+    };
+    auto defaultQueue = sycl::queue{sycl::gpu_selector_v};
+
+    if (matrix_format_ == format::CSR)
+    {
+        
+        if (matrix_sycl.row != nullptr)
+        { 
+            sycl::free(matrix_sycl.row,defaultQueue);
+        }
+        size_t row_size = r+1;
+        matrix_sycl.row = sycl::malloc_shared<ITYPE>(row_size,defaultQueue);
+        sycl_assign_zero(defaultQueue, matrix_sycl.row, row_size);
+    }
+    else if (matrix_format_ == format::CSC) 
+    {
+        if (matrix_sycl.column != nullptr)
+        {   
+            sycl::free(matrix_sycl.column,defaultQueue);
+        }
+        size_t col_size = c+1;
+        matrix_sycl.column = sycl::malloc_shared<ITYPE>(col_size,defaultQueue);
+        sycl_assign_zero(defaultQueue, matrix_sycl.column, col_size);
+    }
+}
+
+template<typename ITYPE, typename VTYPE>
+void sparse_matrix<ITYPE,VTYPE>::sycl_assign_memory(ITYPE r) 
+{
+    size_t mat_size = r;
+    
+     auto Selector = [](sycl::device const &dev) 
+    {
+        if (dev.get_platform().get_backend() == sycl::backend::ext_oneapi_cuda) 
+        {
+         //   std::cout << " CUDA device found in resize" << std::endl;
+            return 1;
+        }
+        else 
+        {
+            return -1;
+        }
+    };
+    auto defaultQueue = sycl::queue{sycl::gpu_selector_v};
+    if (matrix_format_ == format::CSR)
+    {
+        matrix_sycl.values = sycl::malloc_shared<VTYPE>(mat_size,defaultQueue);
+        matrix_sycl.column = sycl::malloc_shared<ITYPE>(mat_size,defaultQueue);
+    }
+    if (matrix_format_ == format::CSC)
+    {
+        matrix_sycl.values = sycl::malloc_shared<VTYPE>(mat_size,defaultQueue);
+        matrix_sycl.row = sycl::malloc_shared<ITYPE>(mat_size,defaultQueue);
+    }
+}
+
+template<typename ITYPE, typename VTYPE>
+void sparse_matrix<ITYPE,VTYPE>::sycl_assign_memory(ITYPE r, ITYPE c) 
+{
+    size_t mat_size = r*c;
+    
+    auto Selector = [](sycl::device const &dev) 
+    {
+        if (dev.get_platform().get_backend() == sycl::backend::ext_oneapi_cuda) 
+        {
+         //   std::cout << " CUDA device found in resize" << std::endl;
+            return 1;
+        }
+        else 
+        {
+            return -1;
+        }
+    };
+    auto defaultQueue = sycl::queue{sycl::gpu_selector_v};
+    if (matrix_format_ == format::CSR)
+    {
+        matrix_sycl.values = sycl::malloc_shared<VTYPE>(mat_size,defaultQueue);
+        matrix_sycl.column = sycl::malloc_shared<ITYPE>(mat_size,defaultQueue);
+    }
+    if (matrix_format_ == format::CSC)
+    {
+        matrix_sycl.values = sycl::malloc_shared<VTYPE>(mat_size,defaultQueue);
+        matrix_sycl.row = sycl::malloc_shared<ITYPE>(mat_size,defaultQueue);
+    }
+}
+
+template<typename ITYPE, typename VTYPE>
+void sparse_matrix<ITYPE,VTYPE>::sycl_assign_vec_memory(ITYPE r) 
+{
+    size_t mat_size = r;
+    
+    auto Selector = [](sycl::device const &dev) 
+    {
+        if (dev.get_platform().get_backend() == sycl::backend::ext_oneapi_cuda) 
+        {
+         //   std::cout << " CUDA device found in resize" << std::endl;
+            return 1;
+        }
+        else 
+        {
+            return -1;
+        }
+    };
+    auto defaultQueue = sycl::queue{sycl::gpu_selector_v};
+    
+    matrix_sycl.vector_val = sycl::malloc_shared<VTYPE>(mat_size,defaultQueue);
+    
+}
+
+template<typename ITYPE, typename VTYPE>
+void sparse_matrix<ITYPE,VTYPE>::sycl_assign_zero(sycl::queue defaultQueue, ITYPE* mat, size_t mat_size) 
+{
+    auto cgd = [&](sycl::handler &hd) 
+    {
+        hd.parallel_for(sycl::range(mat_size),[=](sycl::id<1> idx) 
+        {
+            mat[idx] = 0;
+        });
+    };
+    defaultQueue.submit(cgd).wait();
+}
+
+template<typename ITYPE, typename VTYPE>
+void sparse_matrix<ITYPE,VTYPE>::sycl_assign_zero(sycl::queue defaultQueue, VTYPE* mat, size_t mat_size) 
+{
+    auto cgd = [&](sycl::handler &hd) 
+    {
+        hd.parallel_for(sycl::range(mat_size),[=](sycl::id<1> idx) 
+        {
+            mat[idx] = 0;
+        });
+    };
+    defaultQueue.submit(cgd).wait();
+}
+
 // Member function to copy a sparse_matrix
 template<typename ITYPE, typename VTYPE>
 void sparse_matrix<ITYPE,VTYPE>::copy(const sparse_matrix<ITYPE,VTYPE> &exist_mat) {
@@ -87,58 +241,113 @@ void sparse_matrix<ITYPE,VTYPE>::copy(const sparse_matrix<ITYPE,VTYPE> &exist_ma
     exist_mat.assert_valid_vector_size("matrix_manipulation.h", "copy()");
 
     std::string format_store = this->get_format();
-
-    if (exist_mat.nnz_>0) {
+    auto Selector = [](sycl::device const &dev) 
+    {
+        if (dev.get_platform().get_backend() == sycl::backend::ext_oneapi_cuda) 
+        {
+         //   std::cout << " CUDA device found in copy  " << std::endl;
+            return 1;
+        }
+        else 
+        {
+            return -1;
+        }
+    };
+    auto defaultQueue = sycl::queue {sycl::gpu_selector_v};
+    if (exist_mat.nnz_>0) 
+    {
 
         if ((rows_ == 0) && (cols_ == 0))
           this->resize(exist_mat.rows_, exist_mat.cols_);
 
         nnz_ = exist_mat.nnz_;
 
-        if (exist_mat.matrix_format_ == format::COO) {
+        if (exist_mat.matrix_format_ == format::COO) 
+        {
 
             matrix_coo.values_.reserve(exist_mat.matrix_coo.values_.size());
             matrix_coo.row_indices_.reserve(exist_mat.matrix_coo.row_indices_.size());
             matrix_coo.col_indices_.reserve(exist_mat.matrix_coo.col_indices_.size());
+           
+
+            size_t mat_size = exist_mat.matrix_coo.values_.size();
+            size_t mat_size_row = exist_mat.matrix_coo.row_indices_.size();
+            size_t mat_size_col = exist_mat.matrix_coo.col_indices_.size();
+
+            matrix_sycl.values = sycl::malloc_shared<VTYPE>(mat_size,defaultQueue);
+            matrix_sycl.row    = sycl::malloc_shared<ITYPE>(mat_size_row,defaultQueue);
+            matrix_sycl.column = sycl::malloc_shared<ITYPE>(mat_size_col,defaultQueue);
 
             matrix_coo.values_ = std::vector<VTYPE>(exist_mat.matrix_coo.values_.begin(), exist_mat.matrix_coo.values_.end());
             matrix_coo.row_indices_ = std::vector<ITYPE>(exist_mat.matrix_coo.row_indices_.begin(), exist_mat.matrix_coo.row_indices_.end());
             matrix_coo.col_indices_ = std::vector<ITYPE>(exist_mat.matrix_coo.col_indices_.begin(), exist_mat.matrix_coo.col_indices_.end());
 
+            copy_sycl_data(defaultQueue,matrix_sycl.values,exist_mat.matrix_sycl.values,mat_size);
+            copy_sycl_data(defaultQueue,matrix_sycl.row,exist_mat.matrix_sycl.row,mat_size_row);
+            copy_sycl_data(defaultQueue,matrix_sycl.column,exist_mat.matrix_sycl.column,mat_size_col);
             matrix_format_ = exist_mat.matrix_format_;
 
-        } else if (exist_mat.matrix_format_ == format::CSR) {
+        } 
+        else if (exist_mat.matrix_format_ == format::CSR) 
+        {
 
             matrix_csr.values_.reserve(exist_mat.matrix_csr.values_.size());
             matrix_csr.row_ptrs_.reserve(exist_mat.matrix_csr.row_ptrs_.size());
             matrix_csr.col_indices_.reserve(exist_mat.matrix_csr.col_indices_.size());
+            
+            size_t mat_size = exist_mat.matrix_csr.values_.size();
+            size_t mat_size_row = exist_mat.matrix_csr.row_ptrs_.size();
+            size_t mat_size_col = exist_mat.matrix_csr.col_indices_.size();
+            
+            matrix_sycl.values = sycl::malloc_shared<VTYPE>(mat_size,defaultQueue);
+            matrix_sycl.row    = sycl::malloc_shared<ITYPE>(mat_size_row,defaultQueue);
+            matrix_sycl.column = sycl::malloc_shared<ITYPE>(mat_size_col,defaultQueue);
 
             matrix_csr.values_ = std::vector<VTYPE>(exist_mat.matrix_csr.values_.begin(), exist_mat.matrix_csr.values_.end());
             matrix_csr.row_ptrs_ = std::vector<ITYPE>(exist_mat.matrix_csr.row_ptrs_.begin(), exist_mat.matrix_csr.row_ptrs_.end());
             matrix_csr.col_indices_ = std::vector<ITYPE>(exist_mat.matrix_csr.col_indices_.begin(), exist_mat.matrix_csr.col_indices_.end());
-
+           
+            copy_sycl_data(defaultQueue,matrix_sycl.values,exist_mat.matrix_sycl.values,mat_size);
+            copy_sycl_data(defaultQueue,matrix_sycl.row,exist_mat.matrix_sycl.row,mat_size_row);
+            copy_sycl_data(defaultQueue,matrix_sycl.column,exist_mat.matrix_sycl.column,mat_size_col);
             matrix_format_ = exist_mat.matrix_format_;
-
-        } else if (exist_mat.matrix_format_ == format::CSC) {
+            
+        } 
+        else if (exist_mat.matrix_format_ == format::CSC) 
+        {
 
             matrix_csc.values_.reserve(exist_mat.matrix_csc.values_.size());
             matrix_csc.row_indices_.reserve(exist_mat.matrix_csc.row_indices_.size());
             matrix_csc.col_ptrs_.reserve(exist_mat.matrix_csc.col_ptrs_.size());
 
+            size_t mat_size = exist_mat.matrix_csc.values_.size();
+            size_t mat_size_row = exist_mat.matrix_csc.row_indices_.size();
+            size_t mat_size_col = exist_mat.matrix_csc.col_ptrs_.size();
+            
+            matrix_sycl.values = sycl::malloc_shared<VTYPE>(mat_size,defaultQueue);
+            matrix_sycl.row    = sycl::malloc_shared<ITYPE>(mat_size_row,defaultQueue);
+            matrix_sycl.column = sycl::malloc_shared<ITYPE>(mat_size_col,defaultQueue);
+
             matrix_csc.values_ = std::vector<VTYPE>(exist_mat.matrix_csc.values_.begin(), exist_mat.matrix_csc.values_.end());
             matrix_csc.row_indices_ = std::vector<ITYPE>(exist_mat.matrix_csc.row_indices_.begin(), exist_mat.matrix_csc.row_indices_.end());
             matrix_csc.col_ptrs_ = std::vector<ITYPE>(exist_mat.matrix_csc.col_ptrs_.begin(), exist_mat.matrix_csc.col_ptrs_.end());
+            
+            copy_sycl_data(defaultQueue,matrix_sycl.values,exist_mat.matrix_sycl.values,mat_size);
+            copy_sycl_data(defaultQueue,matrix_sycl.row,exist_mat.matrix_sycl.row,mat_size_row);
+            copy_sycl_data(defaultQueue,matrix_sycl.column,exist_mat.matrix_sycl.column,mat_size_col);
 
             matrix_format_ = exist_mat.matrix_format_;
 
-        } else {
-              std::cerr << "MUI Error [matrix_manipulation.h]: Unrecognised exist_mat format" << std::endl;
-              std::cerr << "    Please set the matrix_format_ as:" << std::endl;
-              std::cerr << "    format::COO: COOrdinate format" << std::endl;
-              std::cerr << "    format::CSR (default): Compressed Sparse Row format" << std::endl;
-              std::cerr << "    format::CSC: Compressed Sparse Column format" << std::endl;
-              std::abort();
-          }
+        } 
+        else 
+        {
+            std::cerr << "MUI Error [matrix_manipulation.h]: Unrecognised exist_mat format" << std::endl;
+            std::cerr << "    Please set the matrix_format_ as:" << std::endl;
+            std::cerr << "    format::COO: COOrdinate format" << std::endl;
+            std::cerr << "    format::CSR (default): Compressed Sparse Row format" << std::endl;
+            std::cerr << "    format::CSC: Compressed Sparse Column format" << std::endl;
+            std::abort();
+        }
     }
 
     if (this->get_format() != format_store)
@@ -148,9 +357,47 @@ void sparse_matrix<ITYPE,VTYPE>::copy(const sparse_matrix<ITYPE,VTYPE> &exist_ma
 
 }
 
+template<typename ITYPE, typename VTYPE>
+void sparse_matrix<ITYPE,VTYPE>::sycl_1d_mat_copy(sycl::queue defaultQueue, const sparse_matrix<ITYPE,VTYPE> &exist_mat) 
+{
+
+    size_t mat_size = exist_mat.get_rows();
+    copy_sycl_data(defaultQueue,matrix_sycl.values,exist_mat.matrix_sycl.values,mat_size);
+    copy_sycl_data(defaultQueue,matrix_sycl.column,exist_mat.matrix_sycl.column,mat_size);
+
+}
+
+template<typename ITYPE, typename VTYPE>
+void sparse_matrix<ITYPE,VTYPE>::sycl_1d_vec_copy(sycl::queue defaultQueue, const sparse_matrix<ITYPE,VTYPE> &exist_mat) 
+{
+
+    size_t mat_size = exist_mat.get_rows();
+    copy_sycl_data(defaultQueue,matrix_sycl.vector_val,exist_mat.matrix_sycl.vector_val,mat_size);
+
+}
+
+template<typename ITYPE, typename VTYPE>
+void sparse_matrix<ITYPE,VTYPE>::sycl_copy_val_vector(sycl::queue defaultQueue, const sparse_matrix<ITYPE,VTYPE> &exist_mat) 
+{
+
+    size_t mat_size = exist_mat.get_rows();
+    copy_sycl_data(defaultQueue,matrix_sycl.vector_val,exist_mat.matrix_sycl.values,mat_size);
+
+}
+
+template<typename ITYPE, typename VTYPE>
+void sparse_matrix<ITYPE,VTYPE>::sycl_copy_val_vector(sycl::queue defaultQueue) 
+{
+
+    size_t mat_size = this->get_rows();
+    copy_sycl_data(defaultQueue,matrix_sycl.vector_val,matrix_sycl.values,mat_size);
+
+}
+
 // Member function to get a segment of a sparse_matrix
 template<typename ITYPE, typename VTYPE>
-sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::segment(ITYPE r_start, ITYPE r_end, ITYPE c_start, ITYPE c_end, bool performSortAndUniqueCheck) {
+sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::segment(ITYPE r_start, ITYPE r_end, ITYPE c_start, ITYPE c_end, bool performSortAndUniqueCheck) 
+{
       // get segment data from the existing matrix
       assert((r_end >= r_start) &&
               "MUI Error [matrix_manipulation.h]: segment function r_end has to be larger or equals to r_start");
@@ -159,7 +406,8 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::segment(ITYPE r_start, IT
       assert(((r_end < rows_) && (r_start >= 0) && (c_end < cols_) && (c_start >= 0)) &&
           "MUI Error [matrix_manipulation.h]: Matrix index out of range in segment function");
 
-      if (performSortAndUniqueCheck) {
+      if (performSortAndUniqueCheck) 
+      {
           if (!(this->is_sorted_unique("matrix_manipulation.h", "segment()"))){
               if(matrix_format_ == format::COO) {
                   this->sort_coo(true, true, "overwrite");
@@ -180,15 +428,31 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::segment(ITYPE r_start, IT
 
     sparse_matrix<ITYPE,VTYPE> res((r_end-r_start+1), (c_end-c_start+1), this->get_format());
 
-    if(matrix_format_ == format::COO) {
+     auto Selector = [](sycl::device const &dev) 
+     {
+        if (dev.get_platform().get_backend() == sycl::backend::ext_oneapi_cuda) 
+        {
+         //   std::cout << " CUDA device found " << std::endl;
+            return 1;
+        }
+        else 
+        {
+            return -1;
+        }
+    };
+    auto defaultQueue = sycl::queue {sycl::gpu_selector_v};
 
+    if(matrix_format_ == format::COO) 
+    {
       // Iterate over the existing non-zero elements
-      for (ITYPE i = 0; i < nnz_; ++i) {
+      for (ITYPE i = 0; i < nnz_; ++i) 
+      {
           ITYPE row = matrix_coo.row_indices_[i];
           ITYPE col = matrix_coo.col_indices_[i];
 
           // Check if the current element is within the specified ranges
-          if (row >= r_start && row <= r_end && col >= c_start && col <= c_end) {
+          if (row >= r_start && row <= r_end && col >= c_start && col <= c_end) 
+          {
               // Calculate the indices for the segment
               ITYPE subRow = row - r_start;
               ITYPE subCol = col - c_start;
@@ -205,13 +469,28 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::segment(ITYPE r_start, IT
 
           }
       }
+      res.sycl_set_zero();
+      res.matrix_sycl.values = sycl::malloc_shared<VTYPE>(res.nnz_,defaultQueue);
+      res.matrix_sycl.row    = sycl::malloc_shared<ITYPE>(res.nnz_,defaultQueue);
+      res.matrix_sycl.column = sycl::malloc_shared<ITYPE>(res.nnz_,defaultQueue);
 
-    } else if (matrix_format_ == format::CSR) {
+      for (int i=0;i<res.nnz_;i++)
+      {
+        res.matrix_sycl.values[i] = res.matrix_coo.values_[i];
+        res.matrix_sycl.row[i]    = res.matrix_coo.row_indices_[i];
+        res.matrix_sycl.column[i] = res.matrix_coo.col_indices_[i];
+      }
+
+    }
+
+    else if (matrix_format_ == format::CSR) 
+    {
 
         res.matrix_csr.row_ptrs_.reserve(r_end-r_start+2);
 
         // Iterate over the row pointers and column indices of the existing non-zero elements
-        for (ITYPE row = r_start; row <= r_end; ++row) {
+        for (ITYPE row = r_start; row <= r_end; ++row) 
+        {
             // Get the starting and ending indices for the current row
             ITYPE start = matrix_csr.row_ptrs_[row];
             ITYPE end = matrix_csr.row_ptrs_[row + 1];
@@ -238,8 +517,28 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::segment(ITYPE r_start, IT
             // Update the row pointer for the segment
             res.matrix_csr.row_ptrs_[row - r_start + 1] = res.matrix_csr.col_indices_.size();
         }
+        res.sycl_set_zero();
+        res.matrix_sycl.values = sycl::malloc_shared<VTYPE>(res.matrix_csr.values_.size(),defaultQueue);
+        res.matrix_sycl.row    = sycl::malloc_shared<ITYPE>(res.matrix_csr.row_ptrs_.size(),defaultQueue);
+        res.matrix_sycl.column = sycl::malloc_shared<ITYPE>(res.matrix_csr.col_indices_.size(),defaultQueue);
 
-    } else if (matrix_format_ == format::CSC) {
+        for (int i=0;i<res.matrix_csr.values_.size();i++)
+        {
+            res.matrix_sycl.values[i] = res.matrix_csr.values_[i];
+        }
+        for (int i=0;i<res.matrix_csr.row_ptrs_.size();i++)
+        {
+            res.matrix_sycl.row[i] = res.matrix_csr.row_ptrs_[i];
+        }
+        for (int i=0;i<res.matrix_csr.col_indices_.size();i++)
+        {
+            res.matrix_sycl.column[i] = res.matrix_csr.col_indices_[i];
+        }
+
+    } 
+
+    else if (matrix_format_ == format::CSC) 
+    {
 
         res.matrix_csc.col_ptrs_.reserve(c_end-c_start+2);
 
@@ -268,12 +567,17 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::segment(ITYPE r_start, IT
                     res.nnz_++;
                 }
             }
-
             // Update the column pointer for the segment
             res.matrix_csc.col_ptrs_[col - c_start + 1] = res.matrix_csc.row_indices_.size();
         }
+         res.sycl_set_zero();
+        res.matrix_sycl.values = sycl::malloc_shared<VTYPE>(res.matrix_csc.values_.size(),defaultQueue);
+        res.matrix_sycl.row    = sycl::malloc_shared<ITYPE>(res.matrix_csc.row_indices_.size(),defaultQueue);
+        res.matrix_sycl.column = sycl::malloc_shared<ITYPE>(res.matrix_csc.col_ptrs_.size(),defaultQueue);
+    }
 
-    } else {
+    else 
+    {
       std::cerr << "MUI Error [matrix_manipulation.h]: Unrecognised matrix format" << std::endl;
       std::cerr << "    Please set the matrix_format_ as:" << std::endl;
       std::cerr << "    format::COO: COOrdinate format" << std::endl;
@@ -287,6 +591,83 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::segment(ITYPE r_start, IT
     return res;
 }
 
+template<typename ITYPE, typename VTYPE>
+void sparse_matrix<ITYPE,VTYPE>::sycl_segment_row(sycl::queue defaultQueue, const sparse_matrix<ITYPE,VTYPE> &exist_mat, ITYPE rowId) 
+{
+    size_t size_vec = exist_mat.rows_;
+    segment_matrix_sycl(defaultQueue, matrix_sycl.vector_val, exist_mat.matrix_sycl.values, exist_mat.matrix_sycl.row, exist_mat.matrix_sycl.column, rowId, size_vec);
+}
+
+template<typename ITYPE, typename VTYPE>
+void sparse_matrix<ITYPE,VTYPE>::segment_matrix_sycl(sycl::queue defaultQueue, VTYPE *vec_value, VTYPE *mat_val, ITYPE *row, ITYPE *column, ITYPE rowId, size_t size_vec)
+{
+    size_t rows = size_vec;
+    auto cag = [&](sycl::handler &ga)
+    {
+        ga.parallel_for(sycl::range(rows),[=](sycl::id<1>idx)
+        {
+            vec_value[idx] = 0.;
+        });
+    };
+    defaultQueue.submit(cag).wait();
+
+    auto startIdx = row[rowId];
+    auto endIdx   = row[rowId+1];
+    size_t Ent_size = endIdx - startIdx;
+    auto caf = [&](sycl::handler &gf)
+    {
+        gf.parallel_for(sycl::range(Ent_size),[=](sycl::id<1>idx)
+        {
+            auto colIdx = column[startIdx + idx];
+            vec_value[colIdx] = mat_val[startIdx + idx];
+        });
+    };
+     defaultQueue.submit(caf).wait();
+}
+
+
+template<typename ITYPE, typename VTYPE>
+void sparse_matrix<ITYPE,VTYPE>::sycl_populate_diag(sycl::queue defaultQueue)
+{
+    size_t row_size = rows_;
+    sycl_populate_diag_vec(defaultQueue,matrix_sycl.values, matrix_sycl.vector_val, matrix_sycl.row, matrix_sycl.column, row_size);
+}
+
+template<typename ITYPE, typename VTYPE> 
+void sparse_matrix<ITYPE,VTYPE>::sycl_populate_diag_vec(sycl::queue defaultQueue, VTYPE *mat_value, VTYPE *vec_value, ITYPE *mat_row, ITYPE *mat_col_idx, size_t size_row)
+{
+    size_t rows = size_row;
+    auto cag = [&](sycl::handler &ga)
+    {
+        ga.parallel_for(sycl::range(rows),[=](sycl::id<1>idx)
+        {
+            auto startIdx = mat_row[idx];
+            auto endIdx   = mat_row[idx+1];
+            auto count = 0;
+            for (int i=startIdx; i<endIdx;i++)
+            {
+                if (mat_col_idx[i] == idx)
+                {
+                    if (std::abs(mat_value[i]) >= std::numeric_limits<VTYPE>::min())
+                    { 
+                        vec_value[idx] = 1.0/mat_value[i];
+                    }
+                    else
+                    {
+                        vec_value[idx] = 1.0;
+                    }
+                    count++;
+                    break;
+                }
+            }
+            if (count == 0)
+            {
+                vec_value[idx] = 1.0;
+            }
+        });
+    };
+    defaultQueue.submit(cag).wait();
+}
 // Member function to insert an element
 template<typename ITYPE, typename VTYPE>
 void sparse_matrix<ITYPE,VTYPE>::set_value(ITYPE r, ITYPE c, VTYPE val, bool performSortAndUniqueCheck) {
@@ -312,23 +693,31 @@ void sparse_matrix<ITYPE,VTYPE>::set_value(ITYPE r, ITYPE c, VTYPE val, bool per
         }
     }
 
-    if(matrix_format_ == format::COO) {
-
-        if (performSortAndUniqueCheck) {
+    if(matrix_format_ == format::COO) 
+    {
+        if (performSortAndUniqueCheck) 
+        {
             this->coo_element_operation(r, c, val, "overwrite", "matrix_manipulation.h", "set_value()");
-        } else {
+        } 
+        else 
+        {
             this->coo_element_operation(r, c, val, "nonsort", "matrix_manipulation.h", "set_value()");
         }
-
-    } else if (matrix_format_ == format::CSR) {
+    } 
+    else if (matrix_format_ == format::CSR) 
+    {
 
         this->csr_element_operation(r, c, val, "overwrite", "matrix_manipulation.h", "set_value()");
 
-    } else if (matrix_format_ == format::CSC) {
+    } 
+    else if (matrix_format_ == format::CSC) 
+    {
 
         this->csc_element_operation(r, c, val, "overwrite", "matrix_manipulation.h", "set_value()");
 
-    } else {
+    } 
+    else 
+    {
           std::cerr << "MUI Error [matrix_manipulation.h]: Unrecognised matrix format" << std::endl;
           std::cerr << "    Please set the matrix_format_ as:" << std::endl;
           std::cerr << "    format::COO: COOrdinate format" << std::endl;
@@ -402,9 +791,33 @@ void sparse_matrix<ITYPE,VTYPE>::set_value(VTYPE val) {
     }
 }
 
+template<typename ITYPE, typename VTYPE>
+void sparse_matrix<ITYPE,VTYPE>::set_axpby(sycl::queue defaultQueue, sparse_matrix<ITYPE,VTYPE> &Amat, VTYPE alpha, VTYPE beta, ITYPE size_row) 
+{
+    size_t vec_size = size_row;
+    sycl_set_y_axpby(defaultQueue,Amat.matrix_sycl.vector_val,matrix_sycl.vector_val,alpha,beta,vec_size);
+
+}
+
+template<typename ITYPE, typename VTYPE>
+void sparse_matrix<ITYPE,VTYPE>::sycl_set_y_axpby(sycl::queue defaultQueue, VTYPE *Xvector, VTYPE *Yvector, VTYPE alpha, VTYPE beta, size_t vec_size)
+{
+    size_t rows = vec_size;
+    auto cag = [&](sycl::handler &ga)
+    {
+        auto Afac = alpha;
+        auto Bfac = beta;
+        ga.parallel_for(sycl::range(rows),[=](sycl::id<1>idx)
+        {
+            Yvector[idx] = Afac * Xvector[idx] + Bfac * Yvector[idx];
+        });
+    };
+    defaultQueue.submit(cag).wait();
+}
 // Member function to swap two elements in a sparse matrix
 template<typename ITYPE, typename VTYPE>
-void sparse_matrix<ITYPE,VTYPE>::swap_elements(ITYPE r1, ITYPE c1, ITYPE r2, ITYPE c2) {
+void sparse_matrix<ITYPE,VTYPE>::swap_elements(ITYPE r1, ITYPE c1, ITYPE r2, ITYPE c2) 
+{
     assert(((r1 < rows_) && (r1 >= 0) && (c1 < cols_) && (c1 >= 0) &&
             (r2 < rows_) && (r2 >= 0) && (c2 < cols_) && (c2 >= 0)) &&
         "MUI Error [matrix_manipulation.h]: Matrix index out of range in swap_elements function");
@@ -440,6 +853,49 @@ void sparse_matrix<ITYPE,VTYPE>::set_zero() {
         std::abort();
     }
     nnz_ = 0;
+}
+
+template<typename ITYPE, typename VTYPE>
+void sparse_matrix<ITYPE,VTYPE>::sycl_set_zero() 
+{
+     auto Selector = [](sycl::device const &dev) 
+        {
+            if (dev.get_platform().get_backend() == sycl::backend::ext_oneapi_cuda) 
+            {
+                std::cout << " CUDA device found " << std::endl;
+                return 1;
+            }
+           else 
+            {
+                return -1;
+            }
+        };
+        auto defaultQueue = sycl::queue {sycl::gpu_selector_v};
+        if (matrix_sycl.values != nullptr)
+        {    
+            sycl::free(matrix_sycl.values,defaultQueue);
+        }
+        if (matrix_sycl.row != nullptr)
+        { 
+            sycl::free(matrix_sycl.row,defaultQueue);
+        }
+        if(matrix_sycl.column != nullptr)
+        {
+            sycl::free(matrix_sycl.column,defaultQueue);
+        }
+        if (matrix_format_ == format::CSR)
+        {
+            size_t row_size = rows_+1;
+            matrix_sycl.row = sycl::malloc_shared<ITYPE>(row_size,defaultQueue);
+            sycl_assign_zero(defaultQueue,matrix_sycl.row,row_size);
+        }
+        else if (matrix_format_ == format::CSC)
+        {
+            size_t col_size = cols_+1;
+            matrix_sycl.column = sycl::malloc_shared<ITYPE>(col_size,defaultQueue);
+            sycl_assign_zero(defaultQueue,matrix_sycl.column,col_size);
+        }
+
 }
 
 // Member function to add scalar to a specific elements
@@ -582,6 +1038,34 @@ void sparse_matrix<ITYPE,VTYPE>::multiply_scalar(ITYPE r, ITYPE c, VTYPE val, bo
     }
 }
 
+template<typename ITYPE, typename VTYPE>
+void sparse_matrix<ITYPE,VTYPE>::sycl_add_scalar(sycl::queue defaultQueue,const sparse_matrix<ITYPE,VTYPE> &exist_mat, VTYPE factor)
+{
+    size_t mat_size = this->get_rows();
+    sycl_add_vec_kernel(defaultQueue,matrix_sycl.vector_val,exist_mat.matrix_sycl.vector_val,factor,mat_size);
+}
+template<typename ITYPE, typename VTYPE>
+void sparse_matrix<ITYPE,VTYPE>::sycl_subtract_scalar(sycl::queue defaultQueue,const sparse_matrix<ITYPE,VTYPE> &exist_mat, VTYPE factor)
+{
+    size_t mat_size = this->get_rows();
+    VTYPE sub_factor = -1 * factor;
+    sycl_add_vec_kernel(defaultQueue,matrix_sycl.vector_val,exist_mat.matrix_sycl.vector_val,sub_factor,mat_size);
+}
+template<typename ITYPE, typename VTYPE>
+void sparse_matrix<ITYPE,VTYPE>::sycl_add_vec_kernel(sycl::queue defaultQueue, VTYPE* mat, VTYPE* add_mat, VTYPE factor, size_t nnz)
+{
+    auto alpha = factor;
+    auto chg = [&](sycl::handler &gh) 
+    {
+        gh.parallel_for(sycl::range(nnz),[=](sycl::id<1> idx) 
+        {
+            mat[idx] = mat[idx] + (alpha*add_mat[idx]);
+        });
+    };        
+    defaultQueue.submit(chg).wait(); 
+    
+}
+
 // Overloaded assignment operator
 template <typename ITYPE, typename VTYPE>
 sparse_matrix<ITYPE,VTYPE>& sparse_matrix<ITYPE,VTYPE>::operator=(const sparse_matrix<ITYPE,VTYPE> &exist_mat) {
@@ -603,20 +1087,78 @@ sparse_matrix<ITYPE,VTYPE>& sparse_matrix<ITYPE,VTYPE>::operator=(const sparse_m
             this->format_conversion(exist_mat.get_format(), true, true, "overwrite");
         }
 
+        auto Selector = [](sycl::device const &dev) 
+        {
+            if (dev.get_platform().get_backend() == sycl::backend::ext_oneapi_cuda) 
+            {
+             //   std::cout << " CUDA device found " << std::endl;
+                return 1;
+            }
+            else 
+            {
+                return -1;
+            }
+        };
+
+        auto defaultQueue = sycl::queue {sycl::gpu_selector_v};
+
         // Copy the data from the existing matrix
-        if (matrix_format_ == format::COO) {
+        if (matrix_format_ == format::COO) 
+        {
+            size_t sycl_mat_size = exist_mat.nnz_;
+
             matrix_coo.values_ = std::vector<VTYPE>(exist_mat.matrix_coo.values_.begin(), exist_mat.matrix_coo.values_.end());
             matrix_coo.row_indices_ = std::vector<ITYPE>(exist_mat.matrix_coo.row_indices_.begin(), exist_mat.matrix_coo.row_indices_.end());
             matrix_coo.col_indices_ = std::vector<ITYPE>(exist_mat.matrix_coo.col_indices_.begin(), exist_mat.matrix_coo.col_indices_.end());
-        } else if (matrix_format_ == format::CSR) {
+            
+            matrix_sycl.values = sycl::malloc_shared<VTYPE>(sycl_mat_size,defaultQueue);
+            matrix_sycl.row    = sycl::malloc_shared<ITYPE>(sycl_mat_size,defaultQueue);
+            matrix_sycl.column = sycl::malloc_shared<ITYPE>(sycl_mat_size,defaultQueue);
+            
+            copy_sycl_data(defaultQueue,matrix_sycl.values,exist_mat.matrix_sycl.values,sycl_mat_size);
+            copy_sycl_data(defaultQueue,matrix_sycl.row,exist_mat.matrix_sycl.row,sycl_mat_size);
+            copy_sycl_data(defaultQueue,matrix_sycl.column,exist_mat.matrix_sycl.column,sycl_mat_size);
+
+        } 
+        else if (matrix_format_ == format::CSR) 
+        {
+            size_t sycl_mat_size = exist_mat.matrix_csr.values_.size();
+            size_t sycl_row_size = exist_mat.matrix_csr.row_ptrs_.size();
+            
             matrix_csr.values_ = std::vector<VTYPE>(exist_mat.matrix_csr.values_.begin(), exist_mat.matrix_csr.values_.end());
             matrix_csr.row_ptrs_ = std::vector<ITYPE>(exist_mat.matrix_csr.row_ptrs_.begin(), exist_mat.matrix_csr.row_ptrs_.end());
             matrix_csr.col_indices_ = std::vector<ITYPE>(exist_mat.matrix_csr.col_indices_.begin(), exist_mat.matrix_csr.col_indices_.end());
-        } else if (matrix_format_ == format::CSC) {
+
+            matrix_sycl.values = sycl::malloc_shared<VTYPE>(sycl_mat_size,defaultQueue);
+            matrix_sycl.column = sycl::malloc_shared<ITYPE>(sycl_mat_size,defaultQueue);
+            matrix_sycl.row    = sycl::malloc_shared<ITYPE>(sycl_row_size,defaultQueue);
+            
+            copy_sycl_data(defaultQueue,matrix_sycl.values,exist_mat.matrix_sycl.values,sycl_mat_size);
+            copy_sycl_data(defaultQueue,matrix_sycl.column,exist_mat.matrix_sycl.column,sycl_mat_size);
+            copy_sycl_data(defaultQueue,matrix_sycl.row,exist_mat.matrix_sycl.row,sycl_row_size);
+            
+        } 
+        else if (matrix_format_ == format::CSC) 
+        {
+            size_t sycl_mat_size = exist_mat.matrix_csc.values_.size();
+            size_t sycl_col_size = exist_mat.matrix_csc.col_ptrs_.size();
+            
             matrix_csc.values_ = std::vector<VTYPE>(exist_mat.matrix_csc.values_.begin(), exist_mat.matrix_csc.values_.end());
             matrix_csc.row_indices_ = std::vector<ITYPE>(exist_mat.matrix_csc.row_indices_.begin(), exist_mat.matrix_csc.row_indices_.end());
             matrix_csc.col_ptrs_ = std::vector<ITYPE>(exist_mat.matrix_csc.col_ptrs_.begin(), exist_mat.matrix_csc.col_ptrs_.end());
-        } else {
+
+            matrix_sycl.values = sycl::malloc_shared<VTYPE>(sycl_mat_size,defaultQueue);
+            matrix_sycl.row    = sycl::malloc_shared<ITYPE>(sycl_mat_size,defaultQueue);
+            matrix_sycl.column = sycl::malloc_shared<ITYPE>(sycl_col_size,defaultQueue);
+            
+            copy_sycl_data(defaultQueue,matrix_sycl.values,exist_mat.matrix_sycl.values,sycl_mat_size);
+            copy_sycl_data(defaultQueue,matrix_sycl.row,exist_mat.matrix_sycl.row,sycl_mat_size);
+            copy_sycl_data(defaultQueue,matrix_sycl.column,exist_mat.matrix_sycl.column,sycl_col_size);
+
+           
+        } 
+        else 
+        {
             std::cerr << "MUI Error [matrix_ctor_dtor.h]: Unrecognised matrix format for matrix constructor" << std::endl;
             std::cerr << "    Please set the matrix_format_ as:" << std::endl;
             std::cerr << "    format::COO: COOrdinate format" << std::endl;
@@ -634,6 +1176,35 @@ sparse_matrix<ITYPE,VTYPE>& sparse_matrix<ITYPE,VTYPE>::operator=(const sparse_m
     return *this;
 }
 
+template<typename ITYPE, typename VTYPE>
+void sparse_matrix<ITYPE,VTYPE>::copy_sycl_data(sycl::queue defaultQueue, VTYPE *mat, VTYPE *exist_mat, size_t matsize) const
+{
+       
+        auto cgd = [&](sycl::handler &hd) 
+        {
+            hd.parallel_for(sycl::range(matsize),[=](sycl::id<1> idx) 
+            {
+                mat[idx] = exist_mat[idx];
+            });
+        };
+        defaultQueue.submit(cgd).wait();
+}
+
+
+template<typename ITYPE, typename VTYPE>
+void sparse_matrix<ITYPE,VTYPE>::copy_sycl_data(sycl::queue defaultQueue, ITYPE *mat, ITYPE *exist_mat, size_t matsize) const
+{
+
+        auto cgd = [&](sycl::handler &hd) 
+        {
+            hd.parallel_for(sycl::range(matsize),[=](sycl::id<1> idx) 
+            {
+                mat[idx] = exist_mat[idx];
+            });
+        };
+        defaultQueue.submit(cgd).wait();
+}
+
 // Member function to convert the format of the sparse matrix
 template<typename ITYPE, typename VTYPE>
 void sparse_matrix<ITYPE,VTYPE>::format_conversion(const std::string &format, bool performSortAndUniqueCheck, bool deduplication, const std::string &deduplication_mode) {
@@ -646,7 +1217,9 @@ void sparse_matrix<ITYPE,VTYPE>::format_conversion(const std::string &format, bo
 
             std::cout << "MUI [matrix_manipulation.h]: Convert matrix format from COO to COO (do nothing)." << std::endl;
 
-        } else if (matrix_format == "CSR") {
+        } 
+        else if (matrix_format == "CSR") 
+        {
 
             if (performSortAndUniqueCheck) {
                 if (!(this->is_sorted_unique("matrix_manipulation.h", "format_conversion()"))){
@@ -656,13 +1229,17 @@ void sparse_matrix<ITYPE,VTYPE>::format_conversion(const std::string &format, bo
 
             this->sparse_matrix<ITYPE,VTYPE>::coo_to_csr();
 
-        } else if (matrix_format == "CSC") {
+        } 
+        else if (matrix_format == "CSC") 
+        {
 
             this->sparse_matrix<ITYPE,VTYPE>::sort_coo(false, deduplication, deduplication_mode);
 
             this->sparse_matrix<ITYPE,VTYPE>::coo_to_csc();
 
-        } else {
+        } 
+        else 
+        {
 
             std::cerr << "MUI Error [matrix_manipulation.h]: Unrecognised format type: " << format << " for matrix format conversion" << std::endl;
             std::cerr << "    Please set the format string as:" << std::endl;
@@ -673,7 +1250,9 @@ void sparse_matrix<ITYPE,VTYPE>::format_conversion(const std::string &format, bo
 
         }
 
-    } else if (matrix_format_ == format::CSR) {
+    } 
+    else if (matrix_format_ == format::CSR) 
+    {
 
         if (matrix_format == "COO") {
 
@@ -710,9 +1289,12 @@ void sparse_matrix<ITYPE,VTYPE>::format_conversion(const std::string &format, bo
 
         }
 
-    } else if (matrix_format_ == format::CSC) {
+    } 
+    else if (matrix_format_ == format::CSC) 
+    {
 
-        if (matrix_format == "COO") {
+        if (matrix_format == "COO") 
+        {
 
             if (performSortAndUniqueCheck) {
                 if (!(this->is_sorted_unique("matrix_manipulation.h", "format_conversion()"))){
@@ -721,8 +1303,10 @@ void sparse_matrix<ITYPE,VTYPE>::format_conversion(const std::string &format, bo
             }
 
             this->sparse_matrix<ITYPE,VTYPE>::csc_to_coo();
+        } 
 
-        } else if (matrix_format == "CSR") {
+        else if (matrix_format == "CSR") 
+        {
 
             if (performSortAndUniqueCheck) {
                 if (!(this->is_sorted_unique("matrix_manipulation.h", "format_conversion()"))){
@@ -732,11 +1316,17 @@ void sparse_matrix<ITYPE,VTYPE>::format_conversion(const std::string &format, bo
 
             this->sparse_matrix<ITYPE,VTYPE>::csc_to_csr();
 
-        } else if (matrix_format == "CSC") {
+        } 
+
+        else if (matrix_format == "CSC") 
+        {
 
             std::cout << "MUI [matrix_manipulation.h]: Convert matrix format from CSC to CSC (do nothing)." << std::endl;
 
-        } else {
+        } 
+
+        else 
+        {
 
             std::cerr << "MUI Error [matrix_manipulation.h]: Unrecognised format type: " << format << " for matrix format conversion" << std::endl;
             std::cerr << "    Please set the format string as:" << std::endl;
@@ -747,7 +1337,8 @@ void sparse_matrix<ITYPE,VTYPE>::format_conversion(const std::string &format, bo
 
         }
 
-    } else {
+    } 
+    else {
 
         std::cerr << "MUI Error [matrix_manipulation.h]: Unrecognised matrix format for matrix format conversion" << std::endl;
         std::cerr << "    Please set the matrix_format_ as:" << std::endl;
@@ -1477,103 +2068,216 @@ void sparse_matrix<ITYPE,VTYPE>::csr_element_operation(ITYPE r, ITYPE c, VTYPE v
         std::abort();
     }
 
+    auto Selector = [](sycl::device const &dev) 
+    {
+        if (dev.get_platform().get_backend() == sycl::backend::ext_oneapi_cuda) 
+        {
+        //    std::cout << " CUDA device found in csr" << std::endl;
+            return 1;
+        }
+        else 
+        {
+            return -1;
+        }
+    };
+    auto defaultQueue = sycl::queue {sycl::gpu_selector_v};
+
     // Find the range of indices for the given row
     ITYPE start = matrix_csr.row_ptrs_[r];
     ITYPE end = matrix_csr.row_ptrs_[r + 1];
 
     // Find the column index position within the range
     auto it = std::lower_bound(matrix_csr.col_indices_.begin()+start, matrix_csr.col_indices_.begin()+end, c);
-
+    
     // Check if the column index already exists in the row
-    if (it != matrix_csr.col_indices_.begin()+end && *it == c) {
+    if (it != matrix_csr.col_indices_.begin()+end && *it == c) 
+    {
         // Get the index of the found column index
         ITYPE insert_position = std::distance(matrix_csr.col_indices_.begin(), it);
-        if (operation_mode_trim == "plus") {
+        if (operation_mode_trim == "plus") 
+        {
             // Check if the sum value is zero
-            if (std::abs(matrix_csr.values_[insert_position] + val) >= std::numeric_limits<VTYPE>::min()) {
+            if (std::abs(matrix_csr.values_[insert_position] + val) >= std::numeric_limits<VTYPE>::min()) 
+            {
                 // Update the existing value with the new value
                 matrix_csr.values_[insert_position] += val;
-            } else {
+                matrix_sycl.values[insert_position] += val;
+            } 
+            else 
+            {
                 // Erase the existing entry from the vectors
                 matrix_csr.col_indices_.erase(matrix_csr.col_indices_.begin()+insert_position);
                 matrix_csr.values_.erase(matrix_csr.values_.begin()+insert_position);
-
+                sycl_remove_element(defaultQueue,matrix_sycl.values,matrix_sycl.column,insert_position,nnz_);
                 // Adjust the row pointers after the erased element
                 for (ITYPE i = r + 1; i < static_cast<ITYPE>(matrix_csr.row_ptrs_.size()); ++i) {
                     matrix_csr.row_ptrs_[i]--;
+                    matrix_sycl.row[i]--;
                 }
                 nnz_--;
             }
-        } else if (operation_mode_trim == "minus") {
+        } 
+        else if (operation_mode_trim == "minus") 
+        {
             // Check if the difference value is zero
-            if (std::abs(matrix_csr.values_[insert_position] - val) >= std::numeric_limits<VTYPE>::min()) {
+            if (std::abs(matrix_csr.values_[insert_position] - val) >= std::numeric_limits<VTYPE>::min()) 
+            {
                 // Update the existing value with the new value
                 matrix_csr.values_[insert_position] -= val;
-            } else {
+                matrix_sycl.values[insert_position] -= val;
+            } 
+            else 
+            {
                 // Erase the existing entry from the vectors
                 matrix_csr.col_indices_.erase(matrix_csr.col_indices_.begin()+insert_position);
                 matrix_csr.values_.erase(matrix_csr.values_.begin()+insert_position);
-
+                sycl_remove_element(defaultQueue,matrix_sycl.values,matrix_sycl.column,insert_position,nnz_);
                 // Adjust the row pointers after the erased element
-                for (ITYPE i = r + 1; i < static_cast<ITYPE>(matrix_csr.row_ptrs_.size()); ++i) {
+                for (ITYPE i = r + 1; i < static_cast<ITYPE>(matrix_csr.row_ptrs_.size()); ++i) 
+                {
                     matrix_csr.row_ptrs_[i]--;
+                    matrix_sycl.row[i]--;
                 }
                 nnz_--;
             }
-        } else if (operation_mode_trim == "multiply") {
+        } 
+        else if (operation_mode_trim == "multiply") 
+        {
             // Check if the product value is zero
-            if (std::abs(matrix_csr.values_[insert_position] * val) >= std::numeric_limits<VTYPE>::min()) {
+            if (std::abs(matrix_csr.values_[insert_position] * val) >= std::numeric_limits<VTYPE>::min()) 
+            {
                 // Update the existing value with the new value
                 matrix_csr.values_[insert_position] *= val;
-            } else {
+                matrix_sycl.values[insert_position] *= val;
+            } 
+            else 
+            {
                 // Erase the existing entry from the vectors
                 matrix_csr.col_indices_.erase(matrix_csr.col_indices_.begin()+insert_position);
                 matrix_csr.values_.erase(matrix_csr.values_.begin()+insert_position);
-
+                sycl_remove_element(defaultQueue,matrix_sycl.values,matrix_sycl.column,insert_position,nnz_);
                 // Adjust the row pointers after the erased element
-                for (ITYPE i = r + 1; i < static_cast<ITYPE>(matrix_csr.row_ptrs_.size()); ++i) {
+                for (ITYPE i = r + 1; i < static_cast<ITYPE>(matrix_csr.row_ptrs_.size()); ++i) 
+                {
                     matrix_csr.row_ptrs_[i]--;
+                    matrix_sycl.row[i]--;
                 }
                 nnz_--;
             }
-        } else { // overwrite
+        } 
+        else 
+        { // overwrite
             // Check if the new value is zero
-            if (std::abs(val) >= std::numeric_limits<VTYPE>::min()) {
+            matrix_sycl.values = sycl::malloc_shared<VTYPE>(nnz_,defaultQueue);
+            matrix_sycl.column = sycl::malloc_shared<ITYPE>(nnz_,defaultQueue);
+            if (std::abs(val) >= std::numeric_limits<VTYPE>::min()) 
+            {
                 // Update the existing value with the new value
                 matrix_csr.values_[insert_position] = val;
-            } else {
+                matrix_sycl.values[insert_position] = val;
+                matrix_sycl.column[insert_position] = c;
+            } 
+            else 
+            {
                 // Erase the existing entry from the vectors
                 matrix_csr.col_indices_.erase(matrix_csr.col_indices_.begin()+insert_position);
                 matrix_csr.values_.erase(matrix_csr.values_.begin()+insert_position);
-
+                sycl_remove_element(defaultQueue,matrix_sycl.values,matrix_sycl.column,insert_position,nnz_);
                 // Adjust the row pointers after the erased element
-                for (ITYPE i = r + 1; i < static_cast<ITYPE>(matrix_csr.row_ptrs_.size()); ++i) {
+                for (ITYPE i = r + 1; i < static_cast<ITYPE>(matrix_csr.row_ptrs_.size()); ++i) 
+                {
                     matrix_csr.row_ptrs_[i]--;
+                    matrix_sycl.row[i]--;
                 }
                 nnz_--;
             }
         }
-    } else {
-        if (operation_mode_trim != "multiply") {
+    } 
+    else 
+    {
+        if (operation_mode_trim != "multiply") 
+        {
+            VTYPE *temp_mat;
+            ITYPE *temp_ind;
+            size_t val_size;
+            if (nnz_ > 0)
+            {
+                temp_mat = sycl::malloc_device<VTYPE>(nnz_,defaultQueue);
+                temp_ind = sycl::malloc_device<ITYPE>(nnz_,defaultQueue);
+            }
             // Check if the new value is zero
-            if (std::abs(val) >= std::numeric_limits<VTYPE>::min()) {
+            if (std::abs(val) >= std::numeric_limits<VTYPE>::min()) 
+            {
                 // Insert the new value and column index at the determined position
                 ITYPE insert_position = std::distance(matrix_csr.col_indices_.begin(), it);
                 matrix_csr.col_indices_.reserve(matrix_csr.col_indices_.size()+1);
                 matrix_csr.values_.reserve(matrix_csr.values_.size()+1);
                 matrix_csr.col_indices_.insert(matrix_csr.col_indices_.begin()+insert_position, c);
-                if (operation_mode_trim == "minus") {
+                if (operation_mode_trim == "minus") 
+                {
                     matrix_csr.values_.insert(matrix_csr.values_.begin()+insert_position, -val);
-                } else {
+                    if (nnz_>0)
+                    {
+                        copy_sycl_data(defaultQueue,temp_mat,matrix_sycl.values,nnz_);
+                        copy_sycl_data(defaultQueue,temp_ind,matrix_sycl.column,nnz_);
+                        
+                        //sycl::free(matrix_sycl.values,defaultQueue);
+                        //sycl::free(matrix_sycl.column,defaultQueue);
+                        //val_size = nnz_+1;
+                        //matrix_sycl.values=sycl::malloc_shared<VTYPE>(val_size,defaultQueue);
+                        //matrix_sycl.column=sycl::malloc_shared<ITYPE>(val_size,defaultQueue);
+                        
+                        sycl_add_element(defaultQueue,temp_mat,matrix_sycl.values,-val,temp_ind,matrix_sycl.column,c,insert_position,nnz_);
+                    }
+                    else
+                    {
+                     //   matrix_sycl.values=sycl::malloc_shared<VTYPE>(1,defaultQueue);
+                     //   matrix_sycl.column=sycl::malloc_shared<ITYPE>(1,defaultQueue);
+                        matrix_sycl.values[0] = -val;
+                        matrix_sycl.column[0] = c;
+                    }
+                } 
+                else
+                {
                     matrix_csr.values_.insert(matrix_csr.values_.begin()+insert_position, val);
+                    if (nnz_>0)
+                    {
+                        copy_sycl_data(defaultQueue,temp_mat,matrix_sycl.values,nnz_);
+                        copy_sycl_data(defaultQueue,temp_ind,matrix_sycl.column,nnz_);
+                        
+                        //sycl::free(matrix_sycl.values,defaultQueue);
+                        //sycl::free(matrix_sycl.column,defaultQueue);
+                        //val_size = nnz_+1;
+                        //matrix_sycl.values=sycl::malloc_shared<VTYPE>(val_size,defaultQueue);
+                        //matrix_sycl.column=sycl::malloc_shared<ITYPE>(val_size,defaultQueue);
+                        
+                        sycl_add_element(defaultQueue,temp_mat,matrix_sycl.values,val,temp_ind,matrix_sycl.column,c,insert_position,nnz_);
+                    }
+                    else
+                    {
+                        //sycl::free(matrix_sycl.values,defaultQueue);
+                        //sycl::free(matrix_sycl.column,defaultQueue);
+                        //matrix_sycl.values=sycl::malloc_shared<VTYPE>(1,defaultQueue);
+                        //matrix_sycl.column=sycl::malloc_shared<ITYPE>(1,defaultQueue);
+                        matrix_sycl.values[0] = val;
+                        matrix_sycl.column[0] = c;
+                    }
+                    
                 }
-
+                
                 // Adjust the row pointers after the inserted element
-                for (ITYPE i = r + 1; i < static_cast<ITYPE>(matrix_csr.row_ptrs_.size()); ++i) {
+                for (ITYPE i = r + 1; i < static_cast<ITYPE>(matrix_csr.row_ptrs_.size()); ++i) 
+                {
                     matrix_csr.row_ptrs_[i]++;
+                    matrix_sycl.row[i]++;
                 }
+                
                 nnz_++;
-            } else {
+               // sycl::free(temp_mat,defaultQueue);
+               // sycl::free(temp_ind,defaultQueue);
+            } 
+            else 
+            {
                 // No existing entry to update, do nothing
             }
         }
@@ -1689,9 +2393,11 @@ void sparse_matrix<ITYPE,VTYPE>::csc_element_operation(ITYPE r, ITYPE c, VTYPE v
             }
         }
     } else {
-        if (operation_mode_trim != "multiply") {
+        if (operation_mode_trim != "multiply") 
+        {
             // Check if the new value is zero
-            if (std::abs(val) >= std::numeric_limits<VTYPE>::min()) {
+            if (std::abs(val) >= std::numeric_limits<VTYPE>::min()) 
+            {
                 // Insert the new value and row index at the determined position
                 ITYPE insert_position = std::distance(matrix_csc.row_indices_.begin(), it);
                 matrix_csc.row_indices_.reserve(matrix_csc.row_indices_.size()+1);
@@ -1699,20 +2405,114 @@ void sparse_matrix<ITYPE,VTYPE>::csc_element_operation(ITYPE r, ITYPE c, VTYPE v
                 matrix_csc.row_indices_.insert(matrix_csc.row_indices_.begin()+insert_position, r);
                 if (operation_mode_trim == "minus") {
                     matrix_csc.values_.insert(matrix_csc.values_.begin()+insert_position, -val);
-                } else {
+                } 
+                else 
+                {
                     matrix_csc.values_.insert(matrix_csc.values_.begin()+insert_position, val);
                 }
                 // Adjust the row pointers after the inserted element
-                for (ITYPE i = c + 1; i < static_cast<ITYPE>(matrix_csc.col_ptrs_.size()); ++i) {
+                for (ITYPE i = c + 1; i < static_cast<ITYPE>(matrix_csc.col_ptrs_.size()); ++i) 
+                {
                     matrix_csc.col_ptrs_[i]++;
                 }
                 nnz_++;
-            } else {
+            } 
+            else 
+            {
                 // No existing entry to update, do nothing
             }
         }
     }
 
+}
+/// @brief Function containing sycl kernel to remove an element from the specified position (pos) from an sycl vector 
+/// @tparam ITYPE 
+/// @tparam VTYPE 
+/// @param defaultQueue device queue (CPU/GPU/FGPA) available on the device
+/// @param values sycl usm device/shared pointer for values 
+/// @param index sycl usm device/shared pointer for indices 
+/// @param pos position of element to be removed
+/// @param mat_size size of the matrix
+template<typename ITYPE, typename VTYPE>
+void sparse_matrix<ITYPE,VTYPE>::sycl_remove_element(sycl::queue defaultQueue, VTYPE *values, ITYPE *index, ITYPE pos, size_t mat_size) 
+{
+    size_t var_size = mat_size - pos;
+    VTYPE *temp_mat;
+    ITYPE *temp_ind;
+    temp_mat = sycl::malloc_device<VTYPE>(var_size,defaultQueue);
+    temp_ind = sycl::malloc_device<ITYPE>(var_size,defaultQueue);
+   
+    auto cgf = [&](sycl::handler &hf) 
+    {
+        hf.parallel_for(sycl::range((var_size)),[=](sycl::id<1> idx) 
+        {
+            auto location = idx + pos + 1; 
+            temp_mat[idx] = values[location];
+            temp_ind[idx] = index[location];
+            if (location == mat_size)
+            {
+                values[location] = 0.0;
+                index[location] = 0;
+            }
+        });
+    };
+    defaultQueue.submit(cgf).wait();
+
+    auto cgr = [&](sycl::handler &hr) 
+    {
+        hr.parallel_for(sycl::range((var_size)),[=](sycl::id<1> idx) 
+        {
+            auto location = idx + pos;
+            values[location] = temp_mat[idx];
+            index[location]  = temp_ind[idx];
+        });
+    };
+    defaultQueue.submit(cgr).wait();
+    sycl::free(temp_mat,defaultQueue);
+    sycl::free(temp_ind,defaultQueue);
+}
+
+/// @brief Function containing sycl kernel to add an element at a specified position (pos) from an sycl vector 
+/// @tparam ITYPE 
+/// @tparam VTYPE 
+/// @param defaultQueue device queue (CPU/GPU/FGPA) available on the machine
+/// @param values sycl usm device/shared pointer for values 
+/// @param index sycl usm device/shared pointer for indices 
+/// @param pos position of element to be removed
+/// @param mat_size size of the matrix
+template<typename ITYPE, typename VTYPE>
+void sparse_matrix<ITYPE,VTYPE>::sycl_add_element(sycl::queue defaultQueue, VTYPE *temp_mat, VTYPE *values, VTYPE value, ITYPE *temp_ind, ITYPE *index, ITYPE ind, ITYPE pos, size_t mat_size) 
+{
+    size_t var_size = mat_size + 1;
+    size_t loc_size = pos;
+    
+    auto cgf = [&](sycl::handler &hf) 
+    {
+        hf.parallel_for(sycl::range((var_size)),[=](sycl::id<1> idx) 
+        {
+            if (idx == pos)
+            {   
+                values[pos] = value;
+                index[pos] = ind;
+            }
+            if (idx < pos)
+            {   
+                values[idx] =  temp_mat[idx];
+                 index[idx] = temp_ind[idx] ;
+            }
+            if (idx > pos)
+            {
+                auto location = idx + 1;
+                values[location] = temp_mat[idx] ;
+                index[location] = temp_ind[idx] ;
+            }
+            
+        });
+    };
+    defaultQueue.submit(cgf).wait();
+   
+    sycl::free(temp_mat,defaultQueue);
+    sycl::free(temp_ind,defaultQueue);
 }
 
 // Protected member function to convert COO matrix into CSR matrix
@@ -1753,10 +2553,37 @@ void sparse_matrix<ITYPE,VTYPE>::coo_to_csr() {
     matrix_csr.values_.reserve(nnz_);
     matrix_csr.col_indices_.reserve(nnz_);
 
+   auto Selector = [](sycl::device const &dev) 
+    {
+        if (dev.get_platform().get_backend() == sycl::backend::ext_oneapi_cuda) 
+        {
+            std::cout << " CUDA device found in convert coo to csr" << std::endl;
+            return 1;
+        }
+        else 
+        {
+            return -1;
+        }
+    };
+    auto defaultQueue = sycl::queue {sycl::gpu_selector_v};
+
+    matrix_sycl.values = sycl::malloc_shared<VTYPE>(nnz_,defaultQueue);
+    matrix_sycl.row    = sycl::malloc_shared<ITYPE>(rows_+1,defaultQueue);
+    matrix_sycl.column = sycl::malloc_shared<ITYPE>(nnz_,defaultQueue);
+
     std::swap(matrix_csr.values_, matrix_coo.values_);
     std::swap(matrix_csr.row_ptrs_, rowPtr);
     std::swap(matrix_csr.col_indices_, matrix_coo.col_indices_);
 
+    for (int i=0;i<nnz_;i++)
+    {
+        matrix_sycl.values[i] = matrix_csr.values_[i];
+        matrix_sycl.column[i] = matrix_csr.col_indices_[i];
+    }
+    for (int i=0;i<=rows_;i++)
+    {
+        matrix_sycl.row[i] = matrix_csr.row_ptrs_[i];
+    }
     // Deallocate the memory
     matrix_coo.values_.clear();
     matrix_coo.row_indices_.clear();
@@ -1865,9 +2692,12 @@ void sparse_matrix<ITYPE,VTYPE>::csr_to_csc() {
     matrix_csc.row_indices_.resize(nnz_, 0);
 
     // Determine the number of non-zero entries in each column
-    for (ITYPE i = 0; i < cols_; ++i) {
-        for (ITYPE j = 0; j < static_cast<ITYPE>(matrix_csr.col_indices_.size()); ++j) {
-            if (matrix_csr.col_indices_[j] == i) {
+    for (ITYPE i = 0; i < cols_; ++i) 
+    {
+        for (ITYPE j = 0; j < static_cast<ITYPE>(matrix_csr.col_indices_.size()); ++j) 
+        {
+            if (matrix_csr.col_indices_[j] == i) 
+            {
                 ++matrix_csc.col_ptrs_[i];
             }
         }
