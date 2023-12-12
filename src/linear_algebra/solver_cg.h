@@ -221,7 +221,7 @@ std::pair<ITYPE, VTYPE> conjugate_gradient_1d<ITYPE, VTYPE>::sycl_solve(sycl::qu
     for (ITYPE k = 0; k < kIter; ++k) 
     {
         ++acturalKIterCount;
-        t1 = std::chrono::high_resolution_clock::now();
+        //t1 = std::chrono::high_resolution_clock::now();
         Ap.sycl_multiply(defaultQueue,A_,p_);
         
         VTYPE p_dot_Ap = p_.sycl_dot_product(defaultQueue,Ap);
@@ -261,11 +261,11 @@ std::pair<ITYPE, VTYPE> conjugate_gradient_1d<ITYPE, VTYPE>::sycl_solve(sycl::qu
         //    std::cout << std::endl <<  " Updated R norm : " << updated_r_norm << "At iteration k : " << k <<std::endl;
             break;
         }
-         t2 = std::chrono::high_resolution_clock::now();
-         functime = functime + (std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count());
+        // t2 = std::chrono::high_resolution_clock::now();
+        // functime = functime + (std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count());
         
     }
-    return std::make_pair(acturalKIterCount,functime);
+    return std::make_pair(acturalKIterCount,r_norm_rel);
 }
 
 // Member function for one-dimensional Conjugate Gradient solver to solve
