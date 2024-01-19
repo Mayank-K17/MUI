@@ -321,7 +321,7 @@ std::pair<ITYPE, VTYPE> conjugate_gradient_1d<ITYPE, VTYPE>::solve(sparse_matrix
     for (ITYPE k = 0; k < kIter; ++k) 
     {
         ++acturalKIterCount;
-      //  std::cout<< " Iteration number : "<< k <<std::endl;
+        //std::cout<< " Iteration number : "<< k <<std::endl;
         sparse_matrix<ITYPE,VTYPE> Ap = A_*p_;
         VTYPE p_dot_Ap = p_.dot_product(Ap);
         assert(std::abs(p_dot_Ap) >= std::numeric_limits<VTYPE>::min() &&
@@ -352,7 +352,7 @@ std::pair<ITYPE, VTYPE> conjugate_gradient_1d<ITYPE, VTYPE>::solve(sparse_matrix
         assert(std::abs(r_norm) >= std::numeric_limits<VTYPE>::min() &&
                 "MUI Error [solver_cg.h]: Divide by zero assert for r_norm");
         VTYPE beta = updated_r_norm / r_norm;
-       // std::cout<< std::endl << " Beta Value : " << beta << " Updated R norm : " << updated_r_norm <<std::endl;
+        //std::cout<< std::endl << " Beta Value : " << beta << " Updated R norm : " << updated_r_norm <<std::endl;
         r_norm = updated_r_norm;
         for (ITYPE j = 0; j < A_.get_rows(); ++j) 
         {

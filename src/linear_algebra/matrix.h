@@ -202,6 +202,7 @@ class sparse_matrix {
         VTYPE dot_product(sparse_matrix<ITYPE,VTYPE> &) const;
         VTYPE sycl_dot_product(sycl::queue, sparse_matrix<ITYPE,VTYPE> &);
         VTYPE sycl_dotp_vec_vec(sycl::queue , VTYPE *, VTYPE *,  ITYPE ); 
+        VTYPE sycl_dotp_red_vec_vec(sycl::queue , VTYPE *, VTYPE *,  ITYPE ); 
         // Member function of Hadamard product
         sparse_matrix<ITYPE,VTYPE> hadamard_product(sparse_matrix<ITYPE,VTYPE> &);
         // Member function to get transpose of matrix

@@ -2010,12 +2010,38 @@ VTYPE sparse_matrix<ITYPE,VTYPE>::sycl_dotp_vec_vec(sycl::queue defaultQueue, VT
     return (prod[0]);
 }
 
+
+template<typename ITYPE, typename VTYPE>
+VTYPE sparse_matrix<ITYPE,VTYPE>::sycl_dotp_red_vec_vec(sycl::queue defaultQueue, VTYPE *vec1_value, VTYPE *vec2_value,  ITYPE size_row) 
+{
+      
+      sycl::nd_range<1> range{5000,1000};
+      sycl::buffer<VTYPE> sum{1};
+      auto init = sycl::property::reduction::initialize_to_identity{};
+      auto chg = [&](sycl::handler& h)
+      {
+          
+          auto reductor = sycl::reduction(sum, h, VTYPE{0.0}, std::plus<VTYPE>(), init);
+          h.parallel_for(range, reductor,[=](sycl::nd_item<1> it, auto& sum) 
+            {
+              std::size_t idx = it.get_global_id(0);
+              std::size_t size = it.get_global_range(0);
+              for (std::size_t i = idx; i < size_row; i += size)
+                 sum += vec1_value[i] * vec2_value[i];
+            });
+       }; 
+       defaultQueue.submit(chg).wait();
+       sycl::host_accessor sum_host{sum};
+       return sum_host[0];
+}
+
 // Member function of Hadamard product
 template <typename ITYPE, typename VTYPE>
 sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::hadamard_product(sparse_matrix<ITYPE,VTYPE> &exist_mat) 
 {
     
-    if (rows_ != exist_mat.rows_ || cols_ != exist_mat.cols_) {
+    if (rows_ != exist_mat.rows_ || cols_ != exist_mat.cols_) 
+    {
         std::cerr << "MUI Error [matrix_arithmetic.h]: matrix size mismatch during matrix Hadamard product" << std::endl;
         std::abort();
     }
@@ -2044,7 +2070,8 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::hadamard_product(sparse_m
         }
     }
 
-    if (!this->is_sorted_unique("matrix_arithmetic.h", "hadamard_product()")){
+    if (!this->is_sorted_unique("matrix_arithmetic.h", "hadamard_product()"))
+    {
         if (matrix_format_ == format::COO) {
             this->sort_coo(true, true, "overwrite");
         } else if (matrix_format_ == format::CSR) {
@@ -2414,7 +2441,8 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::transpose(bool performSor
 
 // Member function to perform LU decomposition
 template <typename ITYPE, typename VTYPE>
-void sparse_matrix<ITYPE,VTYPE>::lu_decomposition(sparse_matrix<ITYPE,VTYPE> &L, sparse_matrix<ITYPE,VTYPE> &U) const {
+void sparse_matrix<ITYPE,VTYPE>::lu_decomposition(sparse_matrix<ITYPE,VTYPE> &L, sparse_matrix<ITYPE,VTYPE> &U) const 
+{
     if (((L.get_rows() != 0) && (L.get_rows() != rows_)) ||
         ((U.get_rows() != 0) && (U.get_rows() != rows_)) ||
         ((L.get_cols() != 0) && (L.get_cols() != cols_)) ||
@@ -2473,7 +2501,8 @@ void sparse_matrix<ITYPE,VTYPE>::lu_decomposition(sparse_matrix<ITYPE,VTYPE> &L,
 
 // Member function to perform QR decomposition
 template <typename ITYPE, typename VTYPE>
-void sparse_matrix<ITYPE,VTYPE>::qr_decomposition(sparse_matrix<ITYPE,VTYPE> &Q, sparse_matrix<ITYPE,VTYPE> &R) const {
+void sparse_matrix<ITYPE,VTYPE>::qr_decomposition(sparse_matrix<ITYPE,VTYPE> &Q, sparse_matrix<ITYPE,VTYPE> &R) const 
+{
     if (((Q.get_rows() != 0) && (Q.get_rows() != rows_)) ||
         ((R.get_rows() != 0) && (R.get_rows() != rows_)) ||
         ((Q.get_cols() != 0) && (Q.get_cols() != cols_)) ||
@@ -2566,8 +2595,10 @@ void sparse_matrix<ITYPE,VTYPE>::qr_decomposition(sparse_matrix<ITYPE,VTYPE> &Q,
 
 // Member function to get the inverse of matrix by using Gaussian elimination
 template <typename ITYPE, typename VTYPE>
-sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::inverse() const {
-    if (rows_ != cols_) {
+sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::inverse() const 
+{
+    if (rows_ != cols_) 
+    {
         std::cerr << "MUI Error [matrix_arithmetic.h]: Matrix must be square to find its inverse" << std::endl;
         std::abort();
     }
@@ -2585,7 +2616,6 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::inverse() const {
         for (ITYPE rb = r; rb < rows_; ++rb)  
         {
             const VTYPE tmp = std::abs(mat_copy.get_value(rb, r));
-
             if ((tmp > max_value) && (std::abs(tmp) >= std::numeric_limits<VTYPE>::min()))  
             {
                 max_value = tmp;
@@ -2596,11 +2626,14 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::inverse() const {
         assert(std::abs(mat_copy.get_value(max_row, r)) >= std::numeric_limits<VTYPE>::min() &&
                           "MUI Error [matrix_arithmetic.h]: Divide by zero assert for mat_copy.get_value(max_row, r). Cannot perform matrix invert due to singular matrix.");
 
-        if (max_row != r)  {
+        if (max_row != r)  
+        {
             for (ITYPE c = 0; c < cols_; ++c)
                 mat_copy.swap_elements(r, c, max_row, c);
             ppivot = max_row;
-        } else {
+        } 
+        else 
+        {
             ppivot = 0;
         }
 
@@ -2618,10 +2651,12 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::inverse() const {
         }
 
         for (ITYPE rr = 0; rr < rows_; ++rr)
-            if (rr != r)  {
+            if (rr != r)  
+            {
                 const VTYPE off_diag = mat_copy.get_value(rr, r);
 
-                for (ITYPE c = 0; c < cols_; ++c)  {
+                for (ITYPE c = 0; c < cols_; ++c)  
+                {
                     mat_copy.set_value(rr, c, (mat_copy.get_value(rr, c) - off_diag * mat_copy.get_value(r, c)));
                     inverse_mat.set_value(rr, c, (inverse_mat.get_value(rr, c) - off_diag * inverse_mat.get_value(r, c)));
                 }
@@ -2636,7 +2671,8 @@ sparse_matrix<ITYPE,VTYPE> sparse_matrix<ITYPE,VTYPE>::inverse() const {
 
 // Protected member function to reinterpret the row and column indexes for sparse matrix with COO format - helper function on matrix transpose
 template<typename ITYPE, typename VTYPE>
-void sparse_matrix<ITYPE,VTYPE>::index_reinterpretation() {
+void sparse_matrix<ITYPE,VTYPE>::index_reinterpretation() 
+{
     assert((matrix_format_ == format::COO) &&
               "MUI Error [matrix_arithmetic.h]: index_reinterpretation() is for COO format only.");
 
@@ -2670,8 +2706,8 @@ void sparse_matrix<ITYPE,VTYPE>::format_reinterpretation()
         matrix_csr.row_ptrs_.clear();
         matrix_csr.col_indices_.clear();
         matrix_csr.values_.clear();
-
     } 
+
     else if (matrix_format_ == format::CSC) 
     {
 

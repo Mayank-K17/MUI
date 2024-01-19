@@ -62,12 +62,13 @@ inline double test00 () {
     std::cout << "================ Diagonal Preconditioner ===================" << std::endl;
     std::cout << "============================================================" << std::endl;
     std::cout << std::endl;
-    auto defaultQueue = sycl::queue {sycl::default_selector_v};
+   
     const clock_t begin_time = clock();
 
     double cg_solve_tol = 1e-6;
     int cg_max_iter = 100;
     std::pair<int, double> cgReturn;
+
     // Reads Css matrix from a file
     mui::linalg::sparse_matrix<int,double> Css;
     std::ifstream ifileCss("Css.csv");
@@ -80,6 +81,7 @@ inline double test00 () {
     ifileAas >> Aas;
     ifileAas.close();
 
+    auto defaultQueue = sycl::queue {sycl::default_selector_v};
 
     // Reads H_ref matrix from a file
     mui::linalg::sparse_matrix<int,double> H_ref; //< Reference value of Transformation Matrix
@@ -89,30 +91,27 @@ inline double test00 () {
    
     mui::linalg::sparse_matrix<int,double> H_i;   //< Coupling Matrix
     mui::linalg::sparse_matrix<int,double> H_diff; //< Difference between reference value and calculated value of Transformation Matrix
-    std::cout<<"Before device selector"<<std::endl;
-    
-    
-    std::cout<<"Before device selector"<<std::endl;
+   
     mui::linalg::diagonal_preconditioner<int,double> M(defaultQueue, Css);
     mui::linalg::conjugate_gradient<int,double> cg(Css, Aas, cg_solve_tol, cg_max_iter, &M);
 
     cgReturn = cg.sycl_solve();
     H_i = cg.getSolution();
 
-    std::cout << "Matrix H_i: " << std::endl;
+   // std::cout << "Matrix H_i: " << std::endl;
     //H_i.print();
 
-    std::cout << "Reference value of Matrix H_i: " << std::endl;
+   // std::cout << "Reference value of Matrix H_i: " << std::endl;
     //H_ref.print();
 
     //H_diff = H_i - H_ref;
 
-    std::cout << "Difference between calculated value and reference value: " << std::endl;
+   // std::cout << "Difference between calculated value and reference value: " << std::endl;
     //H_diff.print();
 
     double mui_time = static_cast<double>(clock() - begin_time) / CLOCKS_PER_SEC;
 
-    std::cout << "MUI CG iteration number: " << cgReturn.first <<" with final MUI r_norm_rel: " << cgReturn.second << " solved in " << mui_time << "s " << std::endl;
+   // std::cout << "MUI CG iteration number: " << cgReturn.first <<" with final MUI r_norm_rel: " << cgReturn.second << " solved in " << mui_time << "s " << std::endl;
 
     std::cout << std::endl;
 
