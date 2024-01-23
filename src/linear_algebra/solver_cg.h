@@ -129,12 +129,24 @@ conjugate_gradient<ITYPE, VTYPE>::conjugate_gradient(sparse_matrix<ITYPE,VTYPE> 
 template<typename ITYPE, typename VTYPE>
 conjugate_gradient_1d<ITYPE, VTYPE>::~conjugate_gradient_1d() {
     // Deallocate the memory for matrices
-    A_.set_zero();
+     A_.set_zero();
+    A_.sycl_set_zero();
     x_.set_zero();
+    x_.sycl_set_zero();
     b_.set_zero();
+    b_.sycl_set_zero();
     r_.set_zero();
+    r_.sycl_set_zero();
     z_.set_zero();
+    z_.sycl_set_zero();
     p_.set_zero();
+    p_.sycl_set_zero();
+    Ax0.set_zero();
+    Ax0.sycl_set_zero();
+    tempZ.set_zero();
+    tempZ.sycl_set_zero();
+    Ap.set_zero();
+    Ap.sycl_set_zero();
     // Set properties to null
     cg_solve_tol_ = 0;
     cg_max_iter_ = 0;
@@ -150,10 +162,17 @@ template<typename ITYPE, typename VTYPE>
 conjugate_gradient<ITYPE, VTYPE>::~conjugate_gradient() {
     // Deallocate the memory for matrices
     A_.set_zero();
+    A_.sycl_set_zero();
     x_.set_zero();
+    x_.sycl_set_zero();
     b_.set_zero();
+    b_.sycl_set_zero();
     b_column_.set_zero();
+    b_column_.sycl_set_zero();
     x_init_column_.set_zero();
+    x_init_column_.sycl_set_zero();
+    x_column.set_zero();
+    x_column.sycl_set_zero();
     // Set properties to null
     cg_solve_tol_ = 0;
     cg_max_iter_ = 0;
@@ -446,8 +465,8 @@ std::pair<ITYPE, VTYPE> conjugate_gradient<ITYPE, VTYPE>::sycl_solve(sparse_matr
         {
             x_init_column_.sycl_segment_row(defaultQueue, x_init, j);
         }
-        
-        std::cout<< j << " out of " << b_.get_cols() - 1 <<"iteartions" <<std::endl;
+        if (j%100 == 0 || (j == (b_.get_cols()-1)))
+            std::cout<< j << " out of " << b_.get_cols() - 1 <<"iteartions" <<std::endl;
         auto t1 = std::chrono::high_resolution_clock::now();
         std::pair<ITYPE, VTYPE> cgReturnTemp = cg.sycl_solve(defaultQueue,x_init_column_);
         auto t2 = std::chrono::high_resolution_clock::now();
@@ -468,9 +487,9 @@ std::pair<ITYPE, VTYPE> conjugate_gradient<ITYPE, VTYPE>::sycl_solve(sparse_matr
         //      x_.set_value(i, j, x_column.get_sycl_vec_value(i));
         //}
     }
-    cgReturn.second /= 1e6;
-    std::cout << "Total vector time = " << (cgReturn.second) <<std::endl;
-    std::cout << "Total function time = " << (functime/1000) <<std::endl;
+    cgReturn.second /= b_.get_cols();
+    std::cout << "Total residuals = " << (cgReturn.second) <<std::endl;
+    std::cout << "Total CG function time = " << (functime/1000) <<std::endl;
     return cgReturn;
 }
 

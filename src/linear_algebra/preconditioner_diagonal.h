@@ -118,6 +118,8 @@ diagonal_preconditioner<ITYPE,VTYPE>::~diagonal_preconditioner()
     // Deallocate the memory for the inverse diagonal matrix
     inv_diag_.set_zero();
     inv_diag_.sycl_set_zero();
+    sycl_z_.set_zero();
+    sycl_z_.sycl_set_zero();
 }
 
 // Member function on preconditioner apply
