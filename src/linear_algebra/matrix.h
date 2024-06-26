@@ -142,6 +142,17 @@ class sparse_matrix {
         void segment_matrix_sycl(sycl::queue , VTYPE*, VTYPE*, ITYPE*,ITYPE*,ITYPE,size_t);
         void sycl_populate_diag(sycl::queue );
         void sycl_populate_diag_vec(sycl::queue , VTYPE *, VTYPE *, ITYPE *, ITYPE *, size_t);
+
+        void initialize_memory(ITYPE, ITYPE);
+        
+        void set_ptr_value(ITYPE, ITYPE, VTYPE);
+        void csr_ptr_calc_operation(ITYPE r, ITYPE c, VTYPE val);
+        void csc_ptr_calc_operation(ITYPE r, ITYPE c, VTYPE val);
+        // Member function to insert an element
+        void define_ptrs(ITYPE, ITYPE);
+        
+        void set_add_value(ITYPE, ITYPE, VTYPE);
+
         // Member function to insert an element
         void set_value(ITYPE, ITYPE, VTYPE, bool = true);
         // Member function to insert the same value to all elements
@@ -247,9 +258,15 @@ class sparse_matrix {
         // Protected member function for element operation of COO matrix
         void coo_element_operation(ITYPE, ITYPE, VTYPE, const std::string &, const std::string & = {}, const std::string & = {});
         // Protected member function for element operation of CSR matrix
+       void coo_element_add_operation(ITYPE, ITYPE, VTYPE);
+        // Protected member function for element operation of CSR matrix
         void csr_element_operation(ITYPE, ITYPE, VTYPE, const std::string &, const std::string & = {}, const std::string & = {});
+
+        void csr_element_add_operation(ITYPE, ITYPE, VTYPE);
         // Protected member function for element operation of CSC matrix
         void csc_element_operation(ITYPE, ITYPE, VTYPE, const std::string &, const std::string & = {}, const std::string & = {});
+
+        void csc_element_add_operation(ITYPE, ITYPE, VTYPE);
         // Protected member function to convert COO matrix into CSR matrix
         void coo_to_csr();
         // Protected member function to convert COO matrix into CSC matrix
