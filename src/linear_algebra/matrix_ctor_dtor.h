@@ -96,7 +96,7 @@ sparse_matrix<ITYPE,VTYPE>::sparse_matrix(ITYPE r, ITYPE c, const std::string &f
             matrix_sycl.values      = sycl::malloc_shared<VTYPE>(value_vector.size(),defaultQueue);
             matrix_sycl.row         = sycl::malloc_shared<ITYPE>(row_vector.size(),defaultQueue);
             matrix_sycl.column      = sycl::malloc_shared<ITYPE>(column_vector.size(),defaultQueue);
-            std::cout << "================== Simplified RBF Matrices 3  2=================" << std::endl;
+            
             matrix_coo.values_ = std::vector<VTYPE>(value_vector.begin(), value_vector.end());
             matrix_coo.row_indices_ = std::vector<ITYPE>(row_vector.begin(), row_vector.end());
             matrix_coo.col_indices_ = std::vector<ITYPE>(column_vector.begin(), column_vector.end());

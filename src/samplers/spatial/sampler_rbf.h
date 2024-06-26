@@ -50,6 +50,7 @@
 #include "../../general/util.h"
 #include "../../uniface.h"
 #include "../../linear_algebra/solver.h"
+#include "../../general/domain_hash.h"
 #include <iterator>
 #include <ctime>
 #include <sys/types.h>
@@ -189,8 +190,9 @@ public:
           if (generateMatrix_) { // Generating the matrix
               const clock_t begin_time = clock();
               facilitateGhostPoints();
+              
               REAL error = computeRBFtransformationMatrix(data_points, writeFileAddress_);
-
+              
               if (!QUIET) {
                    std::cout << "MUI [sampler_rbf.h]: Matrices generated in: "
                              << static_cast<double>(clock() - begin_time) / CLOCKS_PER_SEC << "s ";
@@ -877,54 +879,168 @@ private:
 
       // Refine partition size depending on if PoU enabled, whether conservative or consistent
         // and if problem size smaller than defined patch size
+         auto matrix_time = 0.;
+      auto connectivity_time = 0.;
+      auto smoothing_matrix_time = 0.;
+
+        std::pair<point_type, point_type> lbb = localBoundingBox(ptsExtend_);
+        for (int i=0;i<data_points.size();i++) 
+        {     
+            try {
+                switch (CONFIG::D) {
+                case 1:
+                    if (data_points[i].first[0] > lbb.second[0])
+                        lbb.second[0] = data_points[i].first[0];
+                    if (data_points[i].first[0] < lbb.first[0])
+                        lbb.first[0] = data_points[i].first[0];
+                    break;
+                case 2:
+                    if (data_points[i].first[0] > lbb.second[0])
+                        lbb.second[0] = data_points[i].first[0];
+                    if (data_points[i].first[0] < lbb.first[0])
+                        lbb.first[0] = data_points[i].first[0];
+                    if (data_points[i].first[1] > lbb.second[1])
+                        lbb.second[1] = data_points[i].first[1];
+                    if (data_points[i].first[1] < lbb.first[1])
+                        lbb.first[1] = data_points[i].first[1];
+                    break;
+                case 3:
+                    if (data_points[i].first[0] > lbb.second[0])
+                    {
+                        lbb.second[0] = data_points[i].first[0];
+                    }
+                    if (data_points[i].first[0] < lbb.first[0])
+                    {
+                        lbb.first[0] = data_points[i].first[0];
+                    }
+                    if (data_points[i].first[1] > lbb.second[1])
+                        lbb.second[1] = data_points[i].first[1];
+                    if (data_points[i].first[1] < lbb.first[1])
+                        lbb.first[1] = data_points[i].first[1];
+                    if (data_points[i].first[2] > lbb.second[2])
+                        lbb.second[2] = data_points[i].first[2];
+                    if (data_points[i].first[2] < lbb.first[2])
+                        lbb.first[2] = data_points[i].first[2];
+                    break;
+                default:
+                    throw "MUI Error [sampler_rbf.h]: Invalid value of CONFIG::D exception";
+                }
+            }
+            catch (const char *msg) {
+                std::cerr << msg << std::endl;
+            }
+        }
+
+        
+
+        domain_hash<CONFIG> point_hash(lbb,r_);
+        std::vector<int> h_point_hash_index;
+        std::vector<int> n_point_hash_index;
+        h_point_hash_index.reserve(data_points.size());
+        n_point_hash_index.reserve(ptsExtend_.size());
+        for (int i=0;i<data_points.size();i++)
+        {
+            h_point_hash_index.emplace_back(point_hash.set_point_hash(data_points[i].first[0], data_points[i].first[1], data_points[i].first[2],i,true));
+        }
+
+        for (int i=0;i<ptsExtend_.size();i++)
+        {
+            n_point_hash_index.emplace_back(point_hash.set_point_hash(ptsExtend_[i][0], ptsExtend_[i][1], ptsExtend_[i][2],i,false));
+        }
+        point_hash.Voxelize();
+        point_hash.print_hash_size();
+
+        auto t1 = std::chrono::high_resolution_clock::now();
+        auto t2 = std::chrono::high_resolution_clock::now();
         if (conservative_) { // Conservative RBF, using local point set for size
+           
             if (pouEnabled_) { // PoU enabled so check patch size not larger than point set
                 if (ptsExtend_.size() < N_sp_)
                     N_sp_ = ptsExtend_.size();
             }
             else
                 N_sp_ = ptsExtend_.size();
+
+         //    std::cout << "MUI [sampler_rbf.h]: Check patch size for conservative "
+          //                   << static_cast<double>(clock() - begin_time) / CLOCKS_PER_SEC << "s ";
         }
 
-        if (consistent_) { // Consistent RBF, using remote point set for size
+         
+        
+        
+        if (consistent_) 
+        { // Consistent RBF, using remote point set for size
+
             if (pouEnabled_) { // PoU enabled so check patch size not larger than point set
                 if (data_points.size() < N_sp_)
                     N_sp_ = data_points.size();
             }
             else
                 N_sp_ = data_points.size();
+        
+         //   std::cout << "MUI [sampler_rbf.h]: Check patch size for consistent "
+         //                    << static_cast<double>(clock() - begin_time) / CLOCKS_PER_SEC << "s ";
+
         }
 
-        if (smoothFunc_) {
+        if (smoothFunc_) 
+        {
             if (ptsExtend_.size() < M_ap_)
                 M_ap_ = ptsExtend_.size() - 1;
         }
 
+     //   REAL errorReturn = 0;
+
+       // begin_time = clock();
         REAL errorReturn = 0;
-
+        t1 = std::chrono::high_resolution_clock::now();
         if (conservative_)
-            buildConnectivityConservative(data_points, N_sp_, writeMatrix, fileAddress);
+        {
+        //    buildConnectivityConservative(data_points, N_sp_, writeMatrix, fileAddress);
+            buildConnectivityConservativeOpt(data_points, point_hash, h_point_hash_index, n_point_hash_index, N_sp_, writeMatrix, fileAddress);
+          //  std::cout << "MUI [sampler_rbf.h]:build Connectivity matrix conservative "
+          //                   << static_cast<double>(clock() - begin_time) / CLOCKS_PER_SEC << "s ";
+        }
         else
+        {
             buildConnectivityConsistent(data_points, N_sp_, writeMatrix, fileAddress);
-
+            
+          //  std::cout << "MUI [sampler_rbf.h]:build Connectivity matrix consistent "
+              //               << static_cast<double>(clock() - begin_time) / CLOCKS_PER_SEC << "s ";
+        }
         H_.resize(ptsExtend_.size(), data_points.size());
         H_.set_zero();
+        
+         t2 = std::chrono::high_resolution_clock::now();
 
-        if (smoothFunc_) {
-            buildConnectivitySmooth(M_ap_, writeMatrix, fileAddress);
+   //     connectivity_time = connectivity_time + (std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count());
+   //     std::cout << "Total connectivity matrix time = "<<connectivity_time * (1e-6)<<std::endl; 
+
+
+          t1 = std::chrono::high_resolution_clock::now();
+        if (smoothFunc_) 
+        {
+        //    buildConnectivitySmooth(M_ap_, writeMatrix, fileAddress);
+            buildConnectivitySmoothOpt(point_hash, h_point_hash_index, n_point_hash_index, M_ap_, writeMatrix, fileAddress);
             H_toSmooth_.resize(ptsExtend_.size(), data_points.size());
             H_toSmooth_.set_zero();
         }
-
-        if (writeMatrix) {
+        t2 = std::chrono::high_resolution_clock::now();
+   //     smoothing_matrix_time = smoothing_matrix_time + (std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count());
+                
+   //     std::cout << "Total smoothing matrix time = "<<smoothing_matrix_time * (1e-6)<<std::endl; 
+        if (writeMatrix) 
+        {
             std::ofstream outputFileMatrixSize(fileAddress + "/matrixSize.dat");
 
-            if (!outputFileMatrixSize) {
+            if (!outputFileMatrixSize) 
+            {
                 std::cerr
                         << "MUI Error [sampler_rbf.h]: Could not locate the file address of matrixSize.dat!"
                         << std::endl;
             }
-            else {
+            else 
+            {
                 outputFileMatrixSize
                         << "// *********************************************************************************************************************************************";
                 outputFileMatrixSize << "\n";
@@ -993,14 +1109,29 @@ private:
             }
         }
 
-        if (conservative_) { // Build matrix for conservative RBF
-            errorReturn = buildMatrixConservative(data_points, N_sp_, M_ap_, smoothFunc_, pouEnabled_);
+        t1 = std::chrono::high_resolution_clock::now();
+        if (conservative_) 
+        { 
+            // Build matrix for conservative RBF
+            errorReturn = buildMatrixConservative(data_points, N_sp_, M_ap_, smoothFunc_, pouEnabled_, fileAddress);
+
+       //     std::cout << "MUI [sampler_rbf.h]:build Connectivity matrix conservative after smooth "
+         //                    << static_cast<double>(clock() - begin_time) / CLOCKS_PER_SEC << "s ";
         }
-        else {
+        else 
+        {
             // Build matrix for consistent RBF
             errorReturn = buildMatrixConsistent(data_points, N_sp_, M_ap_, smoothFunc_, pouEnabled_);
-        }
 
+        //    std::cout << "MUI [sampler_rbf.h]:build Connectivity matrix consistent after smooth"
+         //                    << static_cast<double>(clock() - begin_time) / CLOCKS_PER_SEC << "s ";
+        }
+        t2 = std::chrono::high_resolution_clock::now();
+        //matrix_time = matrix_time + (std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count());
+
+
+
+        //std::cout << "Total build matrix time = "<<matrix_time * (1e-6)<<std::endl; 
         if (writeMatrix) {
             std::ofstream outputFileHMatrix(fileAddress + "/Hmatrix.dat");
 
@@ -1041,6 +1172,7 @@ private:
                 const size_t MP, bool smoothing, bool pou) const {
         REAL errorReturn = 0;
         std::pair<INT, REAL> iterErrorReturn(0, 0);
+        
         if( pou ) { // Using PoU approach
             for (size_t row = 0; row < ptsExtend_.size(); row++) {
                 linalg::sparse_matrix<INT, REAL> Css; //< Matrix of radial basis function evaluations between prescribed points
@@ -1094,6 +1226,8 @@ private:
                     }
                 }
                 Css = Css_coo;
+                
+               
 
                 // Set Aas
                 // Define intermediate matrix for performance purpose
@@ -1249,14 +1383,20 @@ private:
 
             if (precond_ == 0) {
                 linalg::conjugate_gradient<INT, REAL> cg(Css, Aas_trans, cgSolveTol_, cgMaxIter_);
+                const clock_t begin_time = clock();
                 iterErrorReturn = cg.solve();
                 H_more = cg.getSolution();
+                std::cout << "MUI linear solver time : "
+                             << static_cast<double>(clock() - begin_time) / CLOCKS_PER_SEC << "s ";
             }
             else if (precond_ == 1) {
                 linalg::diagonal_preconditioner<INT, REAL> M(Css);
                 linalg::conjugate_gradient<INT, REAL> cg(Css, Aas_trans, cgSolveTol_, cgMaxIter_, &M);
+                const clock_t begin_time = clock();
                 iterErrorReturn = cg.solve();
                 H_more = cg.getSolution();
+                std::cout << "MUI linear solver time : "
+                             << static_cast<double>(clock() - begin_time) / CLOCKS_PER_SEC << "s ";
             }
             else {
                 std::cerr
@@ -1325,96 +1465,134 @@ private:
     template<template<typename, typename > class CONTAINER>
     inline REAL buildMatrixConservative(
             const CONTAINER<ITYPE, CONFIG> &data_points, const size_t NP,
-            const size_t MP, bool smoothing, bool pou) const {
+            const size_t MP, bool smoothing, bool pou, const std::string &fileAddress) const {
         REAL errorReturn = 0;
+        clock_t begin_time;
+        /*
+        std::ofstream outputCSSMatrix(fileAddress + "/Css_val.dat");
+        std::ofstream outputCSSMatrixRow(fileAddress + "/Css_row.dat");
+        std::ofstream outputCSSMatrixCol(fileAddress + "/Css_col.dat");
+        std::ofstream outputAASMatrix(fileAddress + "/Aas.dat");
+        std::ofstream outputAASMatrixRow(fileAddress + "/Aas_row.dat");
+        std::ofstream outputAASMatrixCol(fileAddress + "/Aas_col.dat");
+        */
+        /*
+        auto solver_time = 0.;
+        auto smoothing_time = 0.;
+        auto smooth_mat_time = 0.;
+        auto intermediate_matrix_time = 0.;
+        auto intermediate_matrix_performance = 0.;
+   
+        auto t1 = std::chrono::high_resolution_clock::now();
+        auto t2 = std::chrono::high_resolution_clock::now();
+        */
+
         std::pair<INT, REAL> iterErrorReturn(0, 0);
+        int sN = NP;
+        if (smoothing)
+        {
+            H_toSmooth_.initialize_memory(data_points.size(),NP);
+        }
+        
+        H_.initialize_memory(data_points.size(),NP);
+        
         if( pou ) { // Using partitioned approach
-            for (size_t row = 0; row < data_points.size(); row++) {
+            for (size_t row = 0; row < data_points.size(); row++) 
+            {
                 linalg::sparse_matrix<INT, REAL> Css; //< Matrix of radial basis function evaluations between prescribed points
                 linalg::sparse_matrix<INT, REAL> Aas; //< Matrix of RBF evaluations between prescribed and interpolation points
+                
 
                 Css.resize((1 + NP + CONFIG::D), (1 + NP + CONFIG::D));
                 Aas.resize((1 + NP + CONFIG::D), 1);
-
-                //set Css
-                // Define intermediate matrix for performance purpose
+                
                 linalg::sparse_matrix<INT, REAL> Css_coo((1 + NP + CONFIG::D),(1 + NP + CONFIG::D),"COO");
-
-                for (size_t i = 0; i < NP; i++) {
-                    for (size_t j = i; j < NP; j++) {
+                
+                for (size_t i = 0; i < NP; i++) 
+                {
+                    for (size_t j = i; j < NP; j++) 
+                    {
                         INT glob_i = connectivityAB_[row][i];
                         INT glob_j = connectivityAB_[row][j];
 
                         auto d = norm(ptsExtend_[glob_i] - ptsExtend_[glob_j]);
 
-                        if (d < r_) {
+                        if (d < r_) 
+                        {
                             REAL w = rbf(d);
                             Css_coo.set_value(i, j, w, false);
-//                            Css.set_value(i, j, w);
-                            if (i != j) {
+                           
+                       
+                            if (i != j) 
+                            {
                                 Css_coo.set_value(j, i, w, false);
-//                                Css.set_value(j, i, w);
                             }
                         }
                     }
                 }
-
-                for (size_t i = 0; i < NP; i++) {
+                
+                for (size_t i = 0; i < NP; i++) 
+                {
                     Css_coo.set_value(i, NP, 1, false);
-//                    Css.set_value(i, NP, 1);
+
                     Css_coo.set_value(NP, i, 1, false);
-//                    Css.set_value(NP, i, 1);
+
 
                     INT glob_i = connectivityAB_[row][i];
 
-                    for (INT dim = 0; dim < CONFIG::D; dim++) {
+                    for (INT dim = 0; dim < CONFIG::D; dim++) 
+                    {
                         Css_coo.set_value(i, (NP + dim + 1), ptsExtend_[glob_i][dim], false);
-//                        Css.set_value(i, (NP + dim + 1), ptsExtend_[glob_i][dim]);
+                    
                         Css_coo.set_value((NP + dim + 1), i, ptsExtend_[glob_i][dim], false);
-//                        Css.set_value((NP + dim + 1), i, ptsExtend_[glob_i][dim]);
                     }
                 }
-
+    
                 Css = Css_coo;
-
-                //set Aas
-                // Define intermediate matrix for performance purpose
+                
+         
                 linalg::sparse_matrix<INT, REAL> Aas_coo((1 + NP + CONFIG::D),1,"COO");
 
-                for (size_t j = 0; j < NP; j++) {
+                for (size_t j = 0; j < NP; j++) 
+                {
                     INT glob_j = connectivityAB_[row][j];
 
                     auto d = norm(data_points[row].first - ptsExtend_[glob_j]);
 
-                    if (d < r_) {
+                    if (d < r_) 
+                    {
                         Aas_coo.set_value(j, 0, rbf(d), false);
-//                        Aas.set_value(j, 0, rbf(d));
+
                     }
                 }
 
                 Aas_coo.set_value(NP, 0, 1, false);
-//                Aas.set_value(NP, 0, 1);
+              
 
-                for (int dim = 0; dim < CONFIG::D; dim++) {
+                for (int dim = 0; dim < CONFIG::D; dim++) 
+                {
                     Aas_coo.set_value((NP + dim + 1), 0, data_points[row].first[dim], false);
-//                    Aas.set_value((NP + dim + 1), 0, data_points[row].first[dim]);
+        
                 }
                 Aas = Aas_coo;
-
+                
                 linalg::sparse_matrix<INT, REAL> H_i;
 
-                if (precond_ == 0) {
+                if (precond_ == 0) 
+                {
                     linalg::conjugate_gradient<INT, REAL> cg(Css, Aas, cgSolveTol_, cgMaxIter_);
                     iterErrorReturn = cg.solve();
                     H_i = cg.getSolution();
                 }
-                else if (precond_ == 1) {
+                else if (precond_ == 1) 
+                {
                     linalg::diagonal_preconditioner<INT, REAL> M(Css);
                     linalg::conjugate_gradient<INT, REAL> cg(Css, Aas, cgSolveTol_, cgMaxIter_, &M);
                     iterErrorReturn = cg.solve();
                     H_i = cg.getSolution();
                 }
-                else {
+                else 
+                {
                     std::cerr
                             << "MUI Error [sampler_rbf.h]: Invalid CG Preconditioner function number ("
                             << precond_ << ")" << std::endl
@@ -1424,40 +1602,61 @@ private:
                     std::abort();
                 }
 
-                if (DEBUG) {
+                //solver_time = solver_time + (std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count());
+       
+                if (DEBUG) 
+                {
                     std::cout << "MUI [sampler_rbf.h]: #iterations of H_i:     " << iterErrorReturn.first
                             << ". Error of H_i: " << iterErrorReturn.second
                             << std::endl;
                 }
 
                 errorReturn += iterErrorReturn.second;
-
-                if (smoothing) {
-                    for (size_t j = 0; j < NP; j++) {
+        //        t1 = std::chrono::high_resolution_clock::now();
+                if (smoothing) 
+                {
+                    for (size_t j = 0; j < NP; j++) 
+                    {
                         INT glob_j = connectivityAB_[row][j];
-                        H_toSmooth_.set_value(glob_j, row, H_i.get_value(j, 0));
+                        H_toSmooth_.set_add_value(glob_j, row, H_i.get_value(j, 0));
+                   
                     }
                 }
-                else {
-                    for (size_t j = 0; j < NP; j++) {
+                else 
+                {
+                    for (size_t j = 0; j < NP; j++) 
+                    {
                         INT glob_j = connectivityAB_[row][j];
-                        H_.set_value(glob_j, row, H_i.get_value(j, 0));
+                        H_.set_add_value(glob_j, row, H_i.get_value(j, 0));
+                    
                     }
                 }
+        //        t2 = std::chrono::high_resolution_clock::now();
+        //        smooth_mat_time = smooth_mat_time + (std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count());
             }
-
+            
+        //    std::cout << "Total solve time = "<<solver_time * (1e-6)<<std::endl; 
+        //    std::cout << "Total intermediate matrix time = "<<intermediate_matrix_time * (1e-6)<<std::endl;
+        //    std::cout << "Total smoothing matrix time = "<<smooth_mat_time * (1e-6)<<std::endl;
+        //    std::cout << "Total intermediate matrix performance = "<<intermediate_matrix_performance * (1e-6)<<std::endl;
+            
             errorReturn /= static_cast<REAL>(data_points.size());
-
-            if (smoothing) {
-                for (size_t row = 0; row < data_points.size(); row++) {
-                    for (size_t j = 0; j < NP; j++) {
+        //    t1 = std::chrono::high_resolution_clock::now();
+            if (smoothing) 
+            {
+                for (size_t row = 0; row < data_points.size(); row++) 
+                {
+                    for (size_t j = 0; j < NP; j++) 
+                    {
                         INT row_i = connectivityAB_[row][j];
                         REAL h_j_sum = 0.;
                         REAL f_sum = 0.;
 
-                        for (size_t k = 0; k < MP; k++) {
+                        for (size_t k = 0; k < MP; k++) 
+                        {
                             INT row_k = connectivityAA_[row_i][k];
-                            if (row_k == static_cast<INT>(row_i)) {
+                            if (row_k == static_cast<INT>(row_i)) 
+                            {
                                 std::cerr << "MUI Error [sampler_rbf.h]: Invalid row_k value: " << row_k
                                         << std::endl;
                             }
@@ -1465,23 +1664,33 @@ private:
                                 h_j_sum += std::pow(dist_h_i(row_i, row_k), -2.);
                         }
 
-                        for (size_t k = 0; k < MP; k++) {
+                        for (size_t k = 0; k < MP; k++) 
+                        {
                             INT row_k = connectivityAA_[row_i][k];
-                            if (row_k == static_cast<INT>(row_i)) {
+                            if (row_k == static_cast<INT>(row_i)) 
+                            {
                                 std::cerr << "MUI Error [sampler_rbf.h]: Invalid row_k value: " << row_k
                                         << std::endl;
                             }
-                            else {
+                            else 
+                            {
                                 REAL w_i = ((std::pow(dist_h_i(row_i, row_k), -2.))
                                         / (h_j_sum));
                                 f_sum += w_i * H_toSmooth_.get_value(row_k, row);
                             }
                         }
-                        H_.set_value(row_i, row,
+                        
+                        H_.set_add_value(row_i, row,
                                 (0.5 * (f_sum + H_toSmooth_.get_value(row_i, row))));
+                        
                     }
                 }
             }
+
+             
+        //    t2 = std::chrono::high_resolution_clock::now();
+        //    smoothing_time = smoothing_time + (std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count());
+        //    std::cout << "Total smoothing time = "<<smoothing_time * (1e-6)<<std::endl;
         }
         else { // Not using partitioned approach
             linalg::sparse_matrix<INT,REAL> Css; //< Matrix of radial basis function evaluations between prescribed points
@@ -1512,6 +1721,7 @@ private:
             }
             Css = Css_coo;
 
+           
             //set Aas
             // Define intermediate vectors for performance purpose
             linalg::sparse_matrix<INT, REAL> Aas_coo(data_points.size(),(1 + ptsExtend_.size() + CONFIG::D),"COO");
@@ -1527,6 +1737,9 @@ private:
                 }
             }
             Aas = Aas_coo;
+
+
+           
 
             linalg::sparse_matrix<INT,REAL> Aas_trans = Aas.transpose();
 
@@ -1855,6 +2068,157 @@ private:
         }
     }
 
+
+    template<template<typename, typename > class CONTAINER>
+    inline void buildConnectivityConservativeOpt(const CONTAINER<ITYPE, CONFIG> &data_points, domain_hash<CONFIG> point_hash, std::vector<int> h_point_hash_index, std::vector<int> n_point_hash_index, size_t NP, bool writeMatrix,
+            const std::string& fileAddress) const 
+    {
+        std::ofstream outputFileCAB;
+        std::ofstream outputFileRemotePoints;
+        std::ofstream MyFile("Points.txt");
+        auto connectivity_matrix_performance = 0.;
+        auto t1 = std::chrono::high_resolution_clock::now();
+        auto t2 = std::chrono::high_resolution_clock::now();
+        if (writeMatrix) {
+            outputFileCAB.open(fileAddress + "/connectivityAB.dat");
+
+            if (!outputFileCAB) {
+                std::cerr
+                        << "MUI Error [sampler_rbf.h]: Could not locate the file address on the connectivityAB.dat"
+                        << std::endl;
+            }
+            else {
+                outputFileCAB
+                        << "// ************************************************************************************************";
+                outputFileCAB << "\n";
+                outputFileCAB
+                        << "// **** This is the 'connectivityAB.dat' file of the RBF spatial sampler of the MUI library";
+                outputFileCAB << "\n";
+                outputFileCAB
+                        << "// **** This file contains the entire matrix of the Point Connectivity Matrix (N).";
+                outputFileCAB << "\n";
+                outputFileCAB
+                        << "// **** The file uses the Comma-Separated Values (CSV) format with ASCII for the entire N matrix";
+                outputFileCAB << "\n";
+                outputFileCAB
+                        << "// ************************************************************************************************";
+                outputFileCAB << "\n";
+                outputFileCAB << "// ";
+                outputFileCAB << "\n";
+            }
+
+            outputFileRemotePoints.open(fileAddress + "/remotePoints.dat");
+
+            if (!outputFileRemotePoints) {
+                std::cerr
+                        << "MUI Error [sampler_rbf.h]: Could not locate the file address on the remotePoints.dat"
+                        << std::endl;
+            }
+            else {
+                outputFileRemotePoints
+                        << "// ************************************************************************************************";
+                outputFileRemotePoints << "\n";
+                outputFileRemotePoints
+                        << "// **** This is the 'remotePoints.dat' file of the RBF spatial sampler of the MUI library";
+                outputFileRemotePoints << "\n";
+                outputFileRemotePoints
+                        << "// **** This file contains the remote points in the correct order that build the coupling matrix H.";
+                outputFileRemotePoints << "\n";
+                outputFileRemotePoints
+                        << "// **** The file uses the Comma-Separated Values (CSV) format with ASCII for the entire N matrix";
+                outputFileRemotePoints << "\n";
+                outputFileRemotePoints
+                        << "// ************************************************************************************************";
+                outputFileRemotePoints << "\n";
+                outputFileRemotePoints << "// ";
+                outputFileRemotePoints << "\n";
+            }
+        }
+
+        connectivityAB_.resize(data_points.size());
+        
+        int index,voxIndex,extIndex;
+        std::vector<std::pair<int,double>> dis_ind;
+        dis_ind.reserve(ptsExtend_.size());
+      
+        std::pair<int,double> single_ind;
+        
+        for (size_t i = 0; i < data_points.size(); i++) 
+        {
+            index = h_point_hash_index.at(i);
+            
+            for (int j=0;j<point_hash.hash_table.at(index).Voxel.size();j++)
+            {
+                if (point_hash.hash_table.at(index).Voxel.size() > 0)
+                {
+                    voxIndex = point_hash.hash_table.at(index).Voxel.at(j);
+                    for (int k=0;k<point_hash.hash_table.at(voxIndex).ptsExtended.size();k++)
+                    {
+                        
+                        if (point_hash.hash_table.at(voxIndex).ptsExtended.size() > 0)
+                        {
+                            extIndex = point_hash.hash_table.at(voxIndex).ptsExtended.at(k);
+                            auto d = normsq(data_points[i].first - ptsExtend_[extIndex]);
+                            single_ind.first = extIndex;
+                            single_ind.second = d;
+                            dis_ind.emplace_back(single_ind);
+                          
+                        }
+                    }
+                }
+            }
+            INT pointsCount = 0;
+            
+            std::sort(dis_ind.begin(), dis_ind.end(), 
+               [&]( std::pair<int,double> const &ji,  std::pair<int,double> const &ki) { return ji.second < ki.second; } );
+            
+            for (size_t n = 0; n < NP; n++) 
+            {
+                connectivityAB_[i].emplace_back(dis_ind.at(n).first);
+                
+                if (writeMatrix && n < NP - 1)
+                    outputFileCAB <<dis_ind.at(n).first << ",";
+                else if (writeMatrix)
+                    outputFileCAB << dis_ind.at(n).first;
+            }
+            t2 = std::chrono::high_resolution_clock::now();
+            connectivity_matrix_performance = connectivity_matrix_performance + (std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count());
+            
+            dis_ind.clear();
+            if (writeMatrix && i < ptsExtend_.size() - 1)
+                outputFileCAB << '\n';
+
+            point_type pointTemp;
+            for (INT dim = 0; dim < CONFIG::D; dim++) 
+            {
+                pointTemp[dim] = data_points[i].first[dim];
+            }
+            remote_pts_.push_back(pointTemp);
+
+            if (writeMatrix) 
+            {
+                for (INT dim = 0; dim < CONFIG::D; dim++) 
+                {
+                    outputFileRemotePoints << remote_pts_[i][dim];
+                    if (dim == (CONFIG::D - 1)) 
+                    {
+                        outputFileRemotePoints << '\n';
+                    } 
+                    else 
+                    {
+                        outputFileRemotePoints << ",";
+                    }
+                }
+            }
+        }
+        
+        if (writeMatrix) {
+            outputFileCAB.close();
+            outputFileRemotePoints.close();
+        }
+    }
+
+
     void buildConnectivitySmooth(const size_t MP, bool writeMatrix, const std::string& fileAddress) const {
         std::ofstream outputFileCAA;
 
@@ -1928,6 +2292,98 @@ private:
             outputFileCAA.close();
     }
 
+    void buildConnectivitySmoothOpt(domain_hash<CONFIG> point_hash, std::vector<int> h_point_hash_index, std::vector<int> n_point_hash_index,const size_t MP, bool writeMatrix, const std::string& fileAddress) const {
+        std::ofstream outputFileCAA;
+
+        if (writeMatrix) 
+        {
+            outputFileCAA.open(fileAddress + "/connectivityAA.dat");
+
+            if (!outputFileCAA) 
+            {
+                std::cerr
+                        << "MUI Error [sampler_rbf.h]: Could not locate the file address on the connectivityAA.dat!"
+                        << std::endl;
+            }
+            else 
+            {
+                outputFileCAA
+                        << "// ************************************************************************************************";
+                outputFileCAA << "\n";
+                outputFileCAA
+                        << "// **** This is the 'connectivityAA.dat' file of the RBF spatial sampler of the MUI library";
+                outputFileCAA << "\n";
+                outputFileCAA
+                        << "// **** This file contains the entire matrix of the Point Connectivity Matrix (M) (for smoothing).";
+                outputFileCAA << "\n";
+                outputFileCAA
+                        << "// **** The file uses the Comma-Separated Values (CSV) format with ASCII for the entire N matrix";
+                outputFileCAA << "\n";
+                outputFileCAA
+                        << "// ************************************************************************************************";
+                outputFileCAA << "\n";
+                outputFileCAA << "// ";
+                outputFileCAA << "\n";
+            }
+        }
+
+        connectivityAA_.resize(ptsExtend_.size());
+        int index,voxIndex,extIndex;
+        
+        std::vector<std::pair<int,double>> dis_ind;
+        dis_ind.reserve(ptsExtend_.size());
+        std::pair<int,double> single_ind;
+
+
+        for (size_t i = 0; i < ptsExtend_.size(); i++) 
+        {
+
+            index = n_point_hash_index.at(i);
+            
+            for (int j=0;j<point_hash.hash_table.at(index).Voxel.size();j++)
+            {
+                if (point_hash.hash_table.at(index).Voxel.size() > 0)
+                {
+                    voxIndex = point_hash.hash_table.at(index).Voxel.at(j);
+                    for (int k=0;k<point_hash.hash_table.at(voxIndex).ptsExtended.size();k++)
+                    {
+                        
+                        if (point_hash.hash_table.at(voxIndex).ptsExtended.size() > 0)
+                        {
+                            extIndex = point_hash.hash_table.at(voxIndex).ptsExtended.at(k);
+                            if (i == extIndex)
+                                continue;
+
+                            auto d = normsq(ptsExtend_[i] - ptsExtend_[extIndex]);
+                            single_ind.first = extIndex;
+                            single_ind.second = d;
+                            dis_ind.emplace_back(single_ind);
+                        }
+                    }
+                }
+            }
+            std::sort(dis_ind.begin(), dis_ind.end(), 
+               [&]( std::pair<int,double> const &ji,  std::pair<int,double> const &ki) { return ji.second < ki.second; } );
+           
+            for (size_t n = 0; n < MP; n++) 
+            {
+                connectivityAA_[i].emplace_back(dis_ind.at(n).first);
+                
+                if (writeMatrix && n < MP - 1)
+                    outputFileCAA <<dis_ind.at(n).first << ",";
+                else if (writeMatrix)
+                    outputFileCAA << dis_ind.at(n).first;
+            }
+
+            dis_ind.clear();
+
+            if (writeMatrix && i < ptsExtend_.size() - 1)
+                outputFileCAA << '\n';
+        }
+
+        if (writeMatrix)
+            outputFileCAA.close();
+    }
     //Radial basis function for two points
     inline REAL rbf(point_type x1, point_type x2) const {
         auto d = norm(x1 - x2);
@@ -1940,6 +2396,38 @@ private:
         case 0:
             //Gaussian
             return (d < r_) ? std::exp(-(s_ * s_ * d * d)) : 0.;
+        case 1:
+            //Wendland's C0
+            return std::pow((1. - d), 2.);
+        case 2:
+            //Wendland's C2
+            return (std::pow((1. - d), 4.)) * ((4. * d) + 1.);
+        case 3:
+            //Wendland's C4
+            return (std::pow((1. - d), 6)) * ((35. * d * d) + (18. * d) + 3.);
+        case 4:
+            //Wendland's C6
+            return (std::pow((1. - d), 8.))
+                    * ((32. * d * d * d) + (25. * d * d) + (8. * d) + 1.);
+        default:
+            std::cerr
+                    << "MUI Error [sampler_rbf.h]: invalid RBF basis function number ("
+                    << basisFunc_ << ")" << std::endl
+                    << "Please set the RBF basis function number (basisFunc_) as: "
+                    << std::endl << "basisFunc_=0 (Gaussian); " << std::endl
+                    << "basisFunc_=1 (Wendland's C0); " << std::endl
+                    << "basisFunc_=2 (Wendland's C2); " << std::endl
+                    << "basisFunc_=3 (Wendland's C4); " << std::endl
+                    << "basisFunc_=4 (Wendland's C6); " << std::endl;
+            return 0;
+        }
+    }
+
+    inline REAL rbf(REAL d, REAL rad_) const {
+        switch (basisFunc_) {
+        case 0:
+            //Gaussian
+            return (d < rad_) ? std::exp(-(s_ * s_ * d * d)) : 0.;
         case 1:
             //Wendland's C0
             return std::pow((1. - d), 2.);

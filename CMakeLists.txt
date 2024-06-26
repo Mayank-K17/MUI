@@ -1,7 +1,7 @@
-cmake_minimum_required(VERSION 3.18)
+cmake_minimum_required(VERSION 3.14)
 project(MUI VERSION 2.0 DESCRIPTION "Multiscale Universal Interface" LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -15,7 +15,7 @@ include(CheckLanguage)
 
 find_package(MPI REQUIRED)
 if(MPI_FOUND)
-	include_directories(SYSTEM ${MPI_INCLUDE_PATH})
+	include_directories(${MPI_INCLUDE_PATH})
 elseif(NOT MPI_FOUND)
 	message(SEND_ERROR "MPI not found")
 endif(MPI_FOUND)
@@ -24,8 +24,8 @@ add_library(MUI INTERFACE)
 
 target_include_directories (MUI INTERFACE
 	$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
-	$<INSTALL_INTERFACE:include>)
-
+	$<INSTALL_INTERFACE:include>
+	)
 target_compile_definitions(MUI INTERFACE LIBRARY_HEADER_ONLY)
 
 install(TARGETS MUI EXPORT muiTargets INCLUDES DESTINATION include LIBRARY DESTINATION lib)
